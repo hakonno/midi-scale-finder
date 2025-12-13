@@ -1,5 +1,7 @@
 const dropzone = document.getElementById("dropzone");
+const info = document.getElementById("info");
 const output = document.getElementById("output");
+
 const SCALES = {
     "Major":       [0, 2, 4, 5, 7, 9, 11],
     "Minor":       [0, 2, 3, 5, 7, 8, 10]
@@ -28,7 +30,7 @@ dropzone.addEventListener("drop", (event) => {
         output.textContent = "Please drop a MIDI file";
         return;
     }
-    output.textContent = "File: " + file.name;
+    info.textContent = "File: " + file.name;
 
     const reader = new FileReader();
 
@@ -58,14 +60,35 @@ function readMidi(arrayBuffer) {
         .sort((a, b) => a - b) // Sort pitch classes numerically
 
     const matches = findMatchingScales(usedNotes);
-    
+
+    printResults(usedNotes, matches);
+}
+
+function printResults(usedNotes, matches) {
+    const perfect = matches.filter(m => m.extra === 0);
+    const strong = matches.filter(m => m.extra === 1);
+    const weak   = matches.filter(m => m.extra > 1);
+
     let text = "Notes found: \n";
     text += usedNotes.map(midiToNoteName).join(", ");
-    text += "\n\nPossible scales:\n";
+    text += "\n\n";
 
-    matches.forEach(m => {
-        text += `${midiToNoteName(m.root)} ${m.name}\n`;
-    })
+    if (perfect.length > 0) {
+        text += "Perfect matches:\n";
+        perfect.forEach(m => {
+            text += ` - ${midiToNoteName(m.root)} ${m.name}\n`;
+        });
+    } else { 
+        text += "Strong candidates:\n";
+        strong.forEach(m => {
+            text += ` - ${midiToNoteName(m.root)} ${m.name} (missing ${m.extra} notes)\n`;
+        });
+    }
+
+    text += "\nOther candidates (less likely):\n";
+    weak.slice(0, 7).forEach(m => {
+        text += ` - ${midiToNoteName(m.root)} ${m.name} (missing ${m.extra} notes)\n`;
+    });
 
     output.textContent = text;
 }
@@ -94,14 +117,29 @@ function findMatchingScales(usedNotes) {
         for (const [name, intervals] of Object.entries(SCALES)) {
             const scale = buildScale(root, intervals);
 
-            if (scaleMatches(scale, usedNotes)) {
+            const matched = usedNotes.filter(n => scale.includes(n)).length;
+            const extra = scale.length - matched;
+
+            if (matched > 0) {
                 results.push({
                     root,
-                    name
+                    name,
+                    matched,
+                    extra
                 });
             }
         }
     }
+
+    // Sorting:
+    // 1. More matched notes first
+    // 2. Fewer extra notes next
+    results.sort((a, b) => {
+        if (b.matched !== a.matched) {
+            return b.matched - a.matched;
+        }
+        return a.extra - b.extra;
+    });
     
     return results;
 }
