@@ -7,13 +7,28 @@ const SCALES = {
 
 // Helper function to convert MIDI note number to note name
 function midiToNoteName(pc) {
-    const names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const names = ["C", "C#/Db", "D", "D#/Eb", "E", "F", "F#/Gb", "G", "G#/Ab", "A", "A#/Bb", "B"];
     return names[pc];
 }
 
 // build scale by adding intervals to root
 function buildScale(root, intervals) {
     return intervals.map(i => (root + i) % 12); 
+}
+
+function getModeCharacteristicNotes(root, mode) {
+    if (mode === "Major") {
+        return {
+            characteristic: (root + 4) % 12,  // major third
+            avoid: (root + 3) % 12            // minor third
+        };
+    } else if (mode === "Minor") {
+        return {
+            characteristic: (root + 3) % 12,  // minor third
+            avoid: (root + 4) % 12            // major third
+        };
+    }
+    return null;
 }
     
 // check if all used notes are in the scale
@@ -44,20 +59,12 @@ function readMidi(arrayBuffer, onResult) {
     const usedNotes = [...noteWeights.keys()]
         .sort((a, b) => a - b) // Sort pitch classes numerically
 
-    let tonic = null;
-    let maxWeight = 0;
-    noteWeights.forEach((weight, pc) => {
-        if (weight > maxWeight) {
-            maxWeight = weight;
-            tonic = pc;
-        }
-    });
-
     const matches = findMatchingScalesWeighted(
         usedNotes,
-        noteWeights,
-        tonic
+        noteWeights
     );
+
+    const tonic = matches[0]?.root ?? 0;
 
     if (onResult) {
         onResult(usedNotes, noteWeights, matches, tonic);
@@ -73,39 +80,60 @@ function findMatchingScalesWeighted(usedNotes, noteWeights, tonic) {
         for (const [name, intervals] of Object.entries(SCALES)) {
             const scale = buildScale(root, intervals); // build scale notes
 
-            let explained = 0;  // total weight of notes explained by the scale
-            let missing = 0;    // total weight of notes not in the scale
+            let score  = 0;  // total weight of notes explained by the scale
+            let penalty = 0;    // total weight of notes not in the scale
 
             usedNotes.forEach(pc => {
                 const weight = noteWeights.get(pc);
 
-                let weighted = weight;
-
-                // scale degree weighting
-                if (pc === root) weighted *= 1.4;                    // tonic
-                if (pc === (root + 7) % 12) weighted *= 1.25;        // dominant (5)
-                if (pc === (root + 3) % 12 || pc === (root + 4) % 12)
-                    weighted *= 1.15;                                // minor/major third
-
                 if (scale.includes(pc)) {
-                    explained += weighted;    // note is in the scale
+                    // Note ER i skalaen
+                    const scaleDegree = (pc - root + 12) % 12;
+                    
+                    // Basispoeng
+                    let points = weight;
+
+                    // Bonus for important scale degrees
+                    if (scaleDegree === 0) {
+                        // TONIC
+                        points *= 2.0;
+                    } else if (scaleDegree === 7) {
+                        // DOMINANT 
+                        points *= 1.5;
+                    } else if (scaleDegree === 5) {
+                        // SUBDOMINANT
+                        points *= 1.3;
+                    } else if (scaleDegree === 3 || scaleDegree === 4) {
+                        // TERTS (major eller minor) - important for defining mode
+                        if (name === "Major" && scaleDegree === 4) {
+                            points *= 1.6; // Major third in Major scale
+                        } else if (name === "Minor" && scaleDegree === 3) {
+                            points *= 1.6; // Minor third in Minor scale
+                        }
+                    }
+
+                    score += points;
                 } else {
-                    missing += weight;      // note is not in the scale
+                    // Note is not in scale. big problem
+                    penalty += weight * 2.0;
+                    
+                    // Extra penalty if it is the "wrong" third
+                    const scaleDegree = (pc - root + 12) % 12;
+                    if (name === "Major" && scaleDegree === 3) {
+                        penalty += weight * 1.0; // Minor third in Major = bad
+                    } else if (name === "Minor" && scaleDegree === 4) {
+                        penalty += weight * 1.0; // Major third in Minor = bad
+                    }
                 }
             });
-
-            let bonus = 0;      // bonus for root note presence
-
-            if (root === tonic) {
-                bonus = explained * 0.15; // 15 % boost?
-            }
 
             results.push({
                 root,
                 name,
-                score: explained + bonus,
-                missing,
-                tonicMatch: root === tonic
+                score: score - penalty,
+                rawScore: score,
+                missing: penalty,
+                tonicMatch: false // (can be set later if needed
             });
         }
     }
