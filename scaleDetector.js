@@ -87,24 +87,24 @@ function findMatchingScalesWeighted(usedNotes, noteWeights, tonic) {
                 const weight = noteWeights.get(pc);
 
                 if (scale.includes(pc)) {
-                    // Note ER i skalaen
+                    // Note IS in the scale
                     const scaleDegree = (pc - root + 12) % 12;
                     
-                    // Basispoeng
+                    // Base points
                     let points = weight;
 
                     // Bonus for important scale degrees
                     if (scaleDegree === 0) {
                         // TONIC
-                        points *= 2.0;
+                        points *= 4.5;
                     } else if (scaleDegree === 7) {
                         // DOMINANT 
-                        points *= 1.5;
+                        points *= 2;
                     } else if (scaleDegree === 5) {
                         // SUBDOMINANT
-                        points *= 1.3;
+                        points *= 0.2;
                     } else if (scaleDegree === 3 || scaleDegree === 4) {
-                        // TERTS (major eller minor) - important for defining mode
+                        // THIRD (major or minor) - important for defining mode
                         if (name === "Major" && scaleDegree === 4) {
                             points *= 1.6; // Major third in Major scale
                         } else if (name === "Minor" && scaleDegree === 3) {
