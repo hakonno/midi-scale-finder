@@ -46,48 +46,66 @@ dropzone.addEventListener("drop", (event) => {
 function readMidi(arrayBuffer) {
     const midi = new Midi(arrayBuffer); // using library to parse MIDI
 
-    const pitchClasses = new Set();
+    // key = pitch class (0-11), value = total length
+    const noteWeights  = new Map();
 
     // Extract MIDI note numbers from all tracks
     midi.tracks.forEach(track => {
         track.notes.forEach(note => {
             const pc = note.midi % 12;
-            pitchClasses.add(pc);
+            const duration = note.duration;
+            
+            noteWeights.set(
+                pc, 
+                (noteWeights.get(pc) || 0) + duration
+            );
         });
     });
 
-    const usedNotes = [...pitchClasses]
+    const usedNotes = [...noteWeights.keys()]
         .sort((a, b) => a - b) // Sort pitch classes numerically
 
-    const matches = findMatchingScales(usedNotes);
+    const matches = findMatchingScalesWeighted(usedNotes, noteWeights);
 
-    printResults(usedNotes, matches);
+    printResultsWeighted(usedNotes, noteWeights, matches);
 }
 
-function printResults(usedNotes, matches) {
-    const perfect = matches.filter(m => m.extra === 0);
-    const strong = matches.filter(m => m.extra === 1);
-    const weak   = matches.filter(m => m.extra > 1);
+function printResultsWeighted(usedNotes, noteWeights, matches) {
+    const perfect = matches.filter(m => m.missing < 0.01);
+    const strong = matches.filter(m => m.missing < 0.5);
+    const weak   = matches.filter(m => m.missing < m.score);
 
-    let text = "Notes found: \n";
-    text += usedNotes.map(midiToNoteName).join(", ");
+    const totalWeight = [...noteWeights.values()]
+    .reduce((a, b) => a + b, 0);
+
+    let text = "Notes found (weighted):\n";
+    usedNotes.forEach(pc => {
+        text += ` - ${midiToNoteName(pc)}: ${noteWeights.get(pc).toFixed(2)}\n`;
+    });
+
+    text = `Total note weight: ${totalWeight.toFixed(2)}\n` + text;
+
     text += "\n\n";
+    text += "\nPossible keys:\n";
 
     if (perfect.length > 0) {
         text += "Perfect matches:\n";
         perfect.forEach(m => {
             text += ` - ${midiToNoteName(m.root)} ${m.name}\n`;
+            text += ` (score: ${m.score.toFixed(2)})\n`;
         });
     } else { 
         text += "Strong candidates:\n";
         strong.forEach(m => {
-            text += ` - ${midiToNoteName(m.root)} ${m.name} (missing ${m.extra} notes)\n`;
+            text += ` - ${midiToNoteName(m.root)} ${m.name} (missing ${m.missing.toFixed(2)} notes)\n`;
+            text += ` (score: ${m.score.toFixed(2)})\n`;
         });
     }
 
     text += "\nOther candidates (less likely):\n";
     weak.slice(0, 7).forEach(m => {
-        text += ` - ${midiToNoteName(m.root)} ${m.name} (missing ${m.extra} notes)\n`;
+        text += ` - ${midiToNoteName(m.root)} ${m.name} (missing ${m.missing.toFixed(2)} notes)\n`;
+        text += ` (score: ${m.score.toFixed(2)})\n`;
     });
 
     output.textContent = text;
@@ -110,35 +128,46 @@ function scaleMatches(scaleNotes, usedNotes) {
     return usedNotes.every(note => scaleNotes.includes(note));
 }
 
-function findMatchingScales(usedNotes) {
-    const results = [];
 
+// Find matching scales with weighted scoring
+function findMatchingScalesWeighted(usedNotes, noteWeights) {
+    const results = []; // to store scale match results
+
+    // Iterate over all possible roots (0-11)
     for (let root = 0; root < 12; root++) {
         for (const [name, intervals] of Object.entries(SCALES)) {
-            const scale = buildScale(root, intervals);
+            const scale = buildScale(root, intervals); // build scale notes
 
-            const matched = usedNotes.filter(n => scale.includes(n)).length;
-            const extra = scale.length - matched;
+            let explained = 0;  // total weight of notes explained by the scale
+            let missing = 0;    // total weight of notes not in the scale
 
-            if (matched > 0) {
-                results.push({
-                    root,
-                    name,
-                    matched,
-                    extra
-                });
-            }
+            usedNotes.forEach(pc => {
+                const weight = noteWeights.get(pc);
+
+                if (scale.includes(pc)) {
+                    explained += weight;    // note is in the scale
+                } else {
+                    missing += weight;      // note is not in the scale
+                }
+            });
+
+            results.push({
+                root,
+                name,
+                score: explained,
+                missing
+            });
         }
     }
 
     // Sorting:
-    // 1. More matched notes first
-    // 2. Fewer extra notes next
+    // 1. Highest explained weight
+    // 2. Lowest missing weight
     results.sort((a, b) => {
-        if (b.matched !== a.matched) {
-            return b.matched - a.matched;
+        if (b.score !== a.score) {
+            return b.score - a.score;
         }
-        return a.extra - b.extra;
+        return a.missing - b.missing;
     });
     
     return results;
