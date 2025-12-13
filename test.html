@@ -15,7 +15,6 @@
             padding: 50px;
             text-align: center;
             margin-bottom: 30px;
-            border-radius: 10px;
         }
         #dropzone.drag-over {
             background: #333;
@@ -32,7 +31,6 @@
             margin: 20px 0;
             padding: 15px;
             background: #f0f0f0;
-            border-radius: 5px;
         }
     </style>
 </head>
@@ -45,13 +43,45 @@
     <div id="summary"></div>
     <div id="results"></div>
 
+    <div id="tuner" style="margin-top:20px; padding:12px; border:1px solid #ccc; border-radius:8px;">
+        <button id="tuneBtn">Tune multipliers (grid search in browser)</button>
+        <div id="tuneStatus" style="margin-top:8px; font-size:0.95em;"></div>
+        <div id="bestFound" style="margin-top:8px; font-family:monospace;"></div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
     <script type="module">
-        import { readMidi } from './scaleDetector.js';
+        import { findMatchingScalesWeighted, midiToNoteName } from './scaleDetector.js';
 
         const dropzone = document.getElementById("dropzone");
         const results = document.getElementById("results");
         const summary = document.getElementById("summary");
+        const tuneBtn = document.getElementById("tuneBtn");
+        const tuneStatus = document.getElementById("tuneStatus");
+        const bestFound = document.getElementById("bestFound");
+
+        // Default multipliers (from tuned 640-file run)
+        const DEFAULT_PARAMS = {
+            tonicMult: 4.0,
+            dominantMult: 1.5,
+            subdominantMult: 0.5,
+            thirdMult: 1.2,
+            wrongThirdPenalty: 0.5,
+            outsidePenalty: 3.0
+        };
+
+        // Search ranges for tuning (can be tightened/expanded)
+        const RANGES = {
+            tonic: [3.0, 3.5, 4.0, 4.5, 5.0],
+            dominant: [1.2, 1.5, 1.8, 2.0, 2.2],
+            subdominant: [0.3, 0.5, 0.8, 1.0, 1.2],
+            third: [1.0, 1.2, 1.4, 1.6, 2.0],
+            wrongThird: [0.3, 0.5, 0.8, 1.0, 1.5],
+            outside: [2.0, 2.5, 3.0, 3.5]
+        };
+
+        // In-memory dataset after loading files
+        let dataset = [];
 
         // Parse filename to get expected key and mode
         function parseFilename(filename) {
@@ -79,10 +109,6 @@
             return map[name];
         }
 
-        let totalTests = 0;
-        let passedTests = 0;
-        let testResults = [];
-
         dropzone.addEventListener("dragover", (e) => {
             e.preventDefault();
             dropzone.classList.add("drag-over");
@@ -97,85 +123,183 @@
             dropzone.classList.remove("drag-over");
             
             // Reset
-            totalTests = 0;
-            passedTests = 0;
-            testResults = [];
-            results.textContent = "Testing...\n\n";
+            dataset = [];
+            results.textContent = "Parsing files...\n\n";
+            summary.textContent = '';
+            bestFound.textContent = '';
+            tuneStatus.textContent = '';
 
             const files = [...e.dataTransfer.files].filter(f => 
                 f.name.endsWith('.mid') || f.name.endsWith('.midi')
             );
 
-            // Process each file
             for (const file of files) {
-                await testFile(file);
+                await loadFileToDataset(file);
             }
 
-            // Show summary
-            const percentage = ((passedTests / totalTests) * 100).toFixed(1);
-            summary.innerHTML = `
-                <span class="${passedTests === totalTests ? 'pass' : 'fail'}">
-                    Resultat: ${passedTests} / ${totalTests} riktig (${percentage}%)
-                </span>
-            `;
-
-            // Show detailed results
-            results.textContent = testResults.join('\n');
+            const base = evaluateAccuracy(DEFAULT_PARAMS, true);
+            renderResults(base);
         });
 
-        function testFile(file) {
+        // Load a file, parse expected key/mode, extract note weights once
+        function loadFileToDataset(file) {
             return new Promise((resolve) => {
                 const expected = parseFilename(file.name);
-                
-                if (!expected) {
-                    testResults.push(`⚠️  SKIP: ${file.name} (kunne ikke parse filnavn)`);
-                    resolve();
-                    return;
-                }
 
-                // Only test Major and Minor for now
-                if (expected.mode !== "Major" && expected.mode !== "Minor") {
+                if (!expected || (expected.mode !== "Major" && expected.mode !== "Minor")) {
                     resolve();
                     return;
                 }
 
                 const reader = new FileReader();
-                
                 reader.onload = () => {
-                    readMidi(reader.result, (usedNotes, noteWeights, matches, tonic) => {
-                        totalTests++;
-                        
-                        const expectedRoot = noteNameToMidi(expected.key);
-                        const top = matches[0];
-                        
-                        const isCorrect = (
-                            top.root === expectedRoot && 
-                            top.name === expected.mode
-                        );
+                    const midi = new Midi(reader.result);
+                    const noteWeights = new Map();
 
-                        if (isCorrect) {
-                            passedTests++;
-                            testResults.push(
-                                `✓ PASS: ${file.name}\n` +
-                                `   Forventet: ${expected.key} ${expected.mode}\n` +
-                                `   Fikk: ${top.root === expectedRoot ? '✓' : '✗'} root, ${top.name === expected.mode ? '✓' : '✗'} mode\n`
-                            );
-                        } else {
-                            const topName = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][top.root];
-                            testResults.push(
-                                `✗ FAIL: ${file.name}\n` +
-                                `   Forventet: ${expected.key} ${expected.mode}\n` +
-                                `   Fikk: ${topName} ${top.name}\n`
-                            );
-                        }
-                        
-                        resolve();
+                    midi.tracks.forEach(track => {
+                        track.notes.forEach(note => {
+                            const pc = note.midi % 12;
+                            noteWeights.set(pc, (noteWeights.get(pc) || 0) + note.duration);
+                        });
                     });
+
+                    const usedNotes = [...noteWeights.keys()].sort((a, b) => a - b);
+                    const expectedRoot = noteNameToMidi(expected.key);
+
+                    dataset.push({
+                        filename: file.name,
+                        usedNotes,
+                        noteWeights,
+                        expectedRoot,
+                        expectedMode: expected.mode
+                    });
+
+                    resolve();
                 };
-                
                 reader.readAsArrayBuffer(file);
             });
         }
+
+        function evaluateAccuracy(params, includeDetails = false) {
+            let correct = 0;
+            const lines = [];
+
+            for (const file of dataset) {
+                const matches = findMatchingScalesWeighted(file.usedNotes, file.noteWeights, params);
+                const top = matches[0];
+                const isCorrect = top.root === file.expectedRoot && top.name === file.expectedMode;
+                if (isCorrect) {
+                    correct++;
+                }
+
+                if (includeDetails) {
+                    const topName = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][top.root];
+                    lines.push(
+                        `${isCorrect ? '✓ PASS' : '✗ FAIL'}: ${file.filename}\n` +
+                        `   Forventet: ${midiToNoteName(file.expectedRoot)} ${file.expectedMode}\n` +
+                        `   Fikk: ${topName} ${top.name}\n`
+                    );
+                }
+            }
+
+            return {
+                correct,
+                total: dataset.length,
+                details: lines
+            };
+        }
+
+        function renderResults(result) {
+            if (result.total === 0) {
+                summary.textContent = 'Ingen filer lastet.';
+                return;
+            }
+            const percentage = ((result.correct / result.total) * 100).toFixed(1);
+            summary.innerHTML = `
+                <span class="${result.correct === result.total ? 'pass' : 'fail'}">
+                    Resultat: ${result.correct} / ${result.total} riktig (${percentage}%)
+                </span>
+            `;
+            results.textContent = result.details.join('\n');
+        }
+
+        // Button: run grid search tuning in-browser
+        tuneBtn.addEventListener('click', async () => {
+            if (!dataset.length) {
+                tuneStatus.textContent = 'Last inn filer først (drag & drop).';
+                return;
+            }
+
+            tuneBtn.disabled = true;
+            tuneStatus.textContent = 'Tuning pågår...';
+            bestFound.textContent = '';
+
+            const combos = RANGES.tonic.length * RANGES.dominant.length * RANGES.subdominant.length *
+                RANGES.third.length * RANGES.wrongThird.length * RANGES.outside.length;
+
+            let tested = 0;
+            let best = { score: -1, params: null };
+            const topList = [];
+
+            for (const tonicMult of RANGES.tonic) {
+                for (const dominantMult of RANGES.dominant) {
+                    for (const subdominantMult of RANGES.subdominant) {
+                        for (const thirdMult of RANGES.third) {
+                            for (const wrongThirdPenalty of RANGES.wrongThird) {
+                                for (const outsidePenalty of RANGES.outside) {
+                                    const params = {
+                                        tonicMult,
+                                        dominantMult,
+                                        subdominantMult,
+                                        thirdMult,
+                                        wrongThirdPenalty,
+                                        outsidePenalty
+                                    };
+
+                                    const { correct, total } = evaluateAccuracy(params, false);
+                                    tested++;
+
+                                    // Track best single
+                                    if (correct > best.score) {
+                                        best = { score: correct, params };
+                                    }
+
+                                    // Maintain top 40 list (descending by score)
+                                    topList.push({ score: correct, params });
+                                    topList.sort((a, b) => b.score - a.score);
+                                    if (topList.length > 40) topList.length = 40;
+
+                                    // Show snapshot of top list occasionally
+                                    if (tested % 500 === 0) {
+                                        const lines = topList.map((item, idx) => {
+                                            const pct = ((item.score / dataset.length) * 100).toFixed(1);
+                                            return `${String(idx + 1).padStart(2, '0')}: ${item.score}/${dataset.length} (${pct}%) ` + JSON.stringify(item.params);
+                                        });
+                                        bestFound.textContent = lines.join('\n');
+                                    }
+
+                                    if (tested % 500 === 0) {
+                                        tuneStatus.textContent = `Fremdrift: ${tested}/${combos} (${((tested/combos)*100).toFixed(1)}%)`;
+                                        await new Promise(r => setTimeout(r, 0));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            const pct = ((best.score / dataset.length) * 100).toFixed(1);
+            tuneStatus.textContent = `Ferdig. Beste: ${best.score}/${dataset.length} (${pct}%)`;
+
+            const lines = topList.map((item, idx) => {
+                const lpct = ((item.score / dataset.length) * 100).toFixed(1);
+                return `${String(idx + 1).padStart(2, '0')}: ${item.score}/${dataset.length} (${lpct}%) ` + JSON.stringify(item.params);
+            });
+            bestFound.textContent = lines.join('\n');
+
+            tuneBtn.disabled = false;
+        });
     </script>
 </body>
 </html>

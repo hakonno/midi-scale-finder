@@ -1,4 +1,4 @@
-export { readMidi, midiToNoteName };
+export { readMidi, midiToNoteName, findMatchingScalesWeighted };
 
 const SCALES = {
     "Major":       [0, 2, 4, 5, 7, 9, 11],
@@ -72,7 +72,17 @@ function readMidi(arrayBuffer, onResult) {
 }
 
 // Find matching scales with weighted scoring
-function findMatchingScalesWeighted(usedNotes, noteWeights, tonic) {
+function findMatchingScalesWeighted(usedNotes, noteWeights, params = {}) {
+    // Default multipliers (tuned from 640-file grid search)
+    const {
+        tonicMult = 4.0,
+        dominantMult = 1.5,
+        subdominantMult = 0.5,
+        thirdMult = 1.2,
+        wrongThirdPenalty = 0.5,
+        outsidePenalty = 3.0
+    } = params;
+
     const results = []; // to store scale match results
 
     // Iterate over all possible roots (0-11)
@@ -96,33 +106,33 @@ function findMatchingScalesWeighted(usedNotes, noteWeights, tonic) {
                     // Bonus for important scale degrees
                     if (scaleDegree === 0) {
                         // TONIC
-                        points *= 4.5;
+                        points *= tonicMult;
                     } else if (scaleDegree === 7) {
                         // DOMINANT 
-                        points *= 2;
+                        points *= dominantMult;
                     } else if (scaleDegree === 5) {
                         // SUBDOMINANT
-                        points *= 0.2;
+                        points *= subdominantMult;
                     } else if (scaleDegree === 3 || scaleDegree === 4) {
                         // THIRD (major or minor) - important for defining mode
                         if (name === "Major" && scaleDegree === 4) {
-                            points *= 1.6; // Major third in Major scale
+                            points *= thirdMult; // Major third in Major scale
                         } else if (name === "Minor" && scaleDegree === 3) {
-                            points *= 1.6; // Minor third in Minor scale
+                            points *= thirdMult; // Minor third in Minor scale
                         }
                     }
 
                     score += points;
                 } else {
                     // Note is not in scale. big problem
-                    penalty += weight * 2.0;
+                    penalty += weight * outsidePenalty;
                     
                     // Extra penalty if it is the "wrong" third
                     const scaleDegree = (pc - root + 12) % 12;
                     if (name === "Major" && scaleDegree === 3) {
-                        penalty += weight * 1.0; // Minor third in Major = bad
+                        penalty += weight * wrongThirdPenalty; // Minor third in Major = bad
                     } else if (name === "Minor" && scaleDegree === 4) {
-                        penalty += weight * 1.0; // Major third in Minor = bad
+                        penalty += weight * wrongThirdPenalty; // Major third in Minor = bad
                     }
                 }
             });
