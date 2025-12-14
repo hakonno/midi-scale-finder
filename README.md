@@ -1,12 +1,6 @@
 # MIDI Scale Finder
-
-Tiny web page to guess the key (tonic + Major/Minor) of a MIDI file.
-
-- Open [index.html](index.html) in a browser.
-- Drag a `.mid`/`.midi` file onto the big drop zone.
-- The result shows the tonic and whether it leans Major or Minor.
-
-Notes
-- Only Major/Minor are considered; relative pairs can flip (e.g., C Major vs A Minor).
-- Heuristic detector, tested 565/640 (≈88%) on a small labeled set.
-- Internal tester lives at [test.html](test.html) (hidden tuner, filename must contain key/mode like `C_Major.mid`).
+- https://hakonno.github.io/midi-scale-finder
+- Uses MIDI.js from https://unpkg.com/@tonejs/midi@2.0.28/build/Midi.js
+- Only Major/Minor are considered for now; relative pairs can flip (e.g., C Major vs A Minor).
+- About (≈88%) accuracy on a small labeled set.
+- Internal tester lives at [test.html](https://hakonno.github.io/midi-scale-finder/test.html) (hidden tuner, filename must contain key/mode like `C_Major.mid`).
