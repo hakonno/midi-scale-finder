@@ -26,12 +26,13 @@
         </fieldset>
 
         <div id="dropzone" class="panel" role="button" tabindex="0" aria-label="Drop MIDI file here or click to select file">
-            Drop MIDI file here or click to choose
+            <div id="dropzoneContent">
+                <div>Drop MIDI file here or click to choose</div>
+                <div id="fileName" class="file-name hidden"></div>
+            </div>
             <input type="file" id="fileInput" accept=".mid,.midi" style="display: none;" aria-label="Choose MIDI file">
         </div>
-
-        <div id="info" class="panel hidden" aria-live="polite" role="status"></div>
-        <pre id="output" class="hidden" aria-live="polite" role="region" aria-label="Analysis results"></pre>
+        <div id="output" class="hidden" aria-live="polite" role="region" aria-label="Analysis results"></div>
 
         <section class="panel" aria-labelledby="about-heading">
             <h2 id="about-heading">What this does</h2>

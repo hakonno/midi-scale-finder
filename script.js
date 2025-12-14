@@ -2,7 +2,7 @@ import { readMidi, midiToNoteName, findMatchingScalesSimple } from './scaleDetec
 
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("fileInput");
-const info = document.getElementById("info");
+const fileName = document.getElementById("fileName");
 const output = document.getElementById("output");
 const modeSimple = document.getElementById("modeSimple");
 const modeAdvanced = document.getElementById("modeAdvanced");
@@ -43,9 +43,7 @@ function displayResults(data) {
 
 // Process a file (used by both drag-drop and file input)
 function processFile(file) {
-    info.textContent = "";
     output.textContent = "";
-    hide(info);
     hide(output);
     lastProcessedData = null;
 
@@ -61,8 +59,8 @@ function processFile(file) {
         return;
     }
     
-    info.textContent = "File: " + file.name;
-    show(info);
+    fileName.textContent = `Uploaded file: ${file.name}`;
+    show(fileName);
 
     const reader = new FileReader();
 
@@ -125,67 +123,97 @@ function printResultsWeighted(usedNotes, noteWeights, matches, tonic) {
     const totalWeight = [...noteWeights.values()]
     .reduce((a, b) => a + b, 0);
     
-    // categorize matches
-    const perfect = matches.filter(m => m.missing < 0.01);
-    const strong = matches.filter(m => m.missing < 0.5);
-    const weak = matches.filter(m => 
-        m.missing >= 0.5 && m.missing < totalWeight * 0.6
-    );
-
     // top candidate
     const top = matches[0];
-
-    // helper to format candidate info
-    function fmtCandidate(m) {
-        const conf = (m.score / (m.score + m.missing)) || 0;
-        const confPct = (conf * 100).toFixed(0) + "%";
-        const tonicMark = m.tonicMatch ? "* tonic match" : "";
-        return ` - ${midiToNoteName(m.root)} ${m.name}${tonicMark} — score: ${m.score.toFixed(2)}, missing: ${m.missing.toFixed(2)} (conf: ${confPct})`;
+    if (!top) {
+        output.textContent = "No matches found.";
+        show(output);
+        return;
     }
 
-    // build output
-    let text = `Detected tonic: ${midiToNoteName(tonic)}\n\n`;
-    // todo: explain to user what tonic means: 
-    // The tonic is the “home” note of a piece—the pitch everything feels drawn back to. 
-    // Knowing the tonic instantly tells you the song’s key, 
-    // so you know which chords and melodies fit naturally.
-    text += `Total note weight: ${totalWeight.toFixed(2)}\n\n`;
+    const confVal = (top.score / (top.score + top.missing)) || 0;
+    const confPct = (confVal * 100).toFixed(0);
+    
+    let confClass = "conf-low";
+    let confLabel = "Low";
+    if (confVal >= 0.8) { confClass = "conf-high"; confLabel = "High"; }
+    else if (confVal >= 0.5) { confClass = "conf-med"; confLabel = "Medium"; }
 
-    text += "Notes found (weighted):\n";
-    usedNotes.forEach(pc => {
-        text += ` - ${midiToNoteName(pc)}: ${noteWeights.get(pc).toFixed(2)}\n`;
+    // Generate reasons
+    const rootName = midiToNoteName(top.root);
+    const thirdInterval = top.name === "Major" ? 4 : 3;
+    const thirdName = midiToNoteName((top.root + thirdInterval) % 12);
+    const dominantName = midiToNoteName((top.root + 7) % 12);
+    
+    const reasons = [];
+    const rootWeight = noteWeights.get(top.root) || 0;
+    const maxWeight = Math.max(...noteWeights.values());
+    
+    if (rootWeight === maxWeight) {
+        reasons.push(`Tonic (<strong>${rootName}</strong>) is the most frequent note`);
+    } else if (rootWeight > maxWeight * 0.6) {
+        reasons.push(`Tonic (<strong>${rootName}</strong>) is prominent`);
+    }
+    
+    const thirdWeight = noteWeights.get((top.root + thirdInterval) % 12) || 0;
+    if (thirdWeight > maxWeight * 0.3) {
+        reasons.push(`${top.name} third (<strong>${thirdName}</strong>) is emphasized`);
+    } else if (thirdWeight > 0) {
+        reasons.push(`${top.name} third (<strong>${thirdName}</strong>) is present`);
+    }
+    
+    const domWeight = noteWeights.get((top.root + 7) % 12) || 0;
+    if (domWeight > maxWeight * 0.5) {
+        reasons.push(`Dominant (<strong>${dominantName}</strong>) is strong`);
+    } else if (domWeight > 0) {
+        reasons.push(`Dominant (<strong>${dominantName}</strong>) appears`);
+    }
+
+    // Build HTML
+    let html = `
+        <div class="result-primary">
+            <div class="key-estimation">
+                Estimated key: <span class="key-name">${midiToNoteName(top.root)} ${top.name}</span>
+            </div>
+            <div class="confidence-badge ${confClass}">
+                Confidence: ${confLabel} (${confPct}%)
+            </div>
+        </div>
+
+        <div class="why-section">
+            <div class="why-title">Why?</div>
+            <ul class="why-list">
+                ${reasons.map(r => `<li>${r}</li>`).join('')}
+            </ul>
+        </div>
+
+        <details class="alternatives-details">
+            <summary>See alternatives</summary>
+            <div class="alternatives-content">
+    `;
+
+    // Add alternatives table
+    html += `<table class="alt-table">
+        <thead><tr><th>Key</th><th>Confidence</th><th>Score</th></tr></thead>
+        <tbody>`;
+    
+    // Show top 10 alternatives (skipping the first one which is the winner)
+    matches.slice(1, 11).forEach(m => {
+        const c = (m.score / (m.score + m.missing)) || 0;
+        const p = (c * 100).toFixed(0);
+        html += `<tr>
+            <td>${midiToNoteName(m.root)} ${m.name}</td>
+            <td>${p}%</td>
+            <td>${m.score.toFixed(1)}</td>
+        </tr>`;
     });
+    
+    html += `</tbody></table>
+            </div>
+        </details>
+    `;
 
-    text += "\n\n";
-
-    if (top) {
-        text += `Best match: ${midiToNoteName(top.root)} ${top.name}  — confidence ${( (top.score / (top.score + top.missing)) * 100 ).toFixed(0)}%\n\n`;
-    }
-
-    // if perfect matches exist, show them
-    if (perfect.length > 0) {
-        text += "Perfect matches:\n";
-        perfect.forEach(m => {
-            text += fmtCandidate(m) + "\n";
-        });
-        // show a couple of other candidates if you want
-        const remaining = matches.filter(m => !perfect.includes(m)).slice(0, 4);
-        if (remaining.length) {
-            text += "\nOther candidates:\n";
-            remaining.forEach(m => text += fmtCandidate(m) + "\n");
-        }
-    } else if (strong.length > 0) {
-        text += "Strong candidates:\n";
-        strong.slice(0, 6).forEach(m => text += fmtCandidate(m) + "\n");
-        text += "\nOther candidates (less likely):\n";
-        weak.slice(0, 6).forEach(m => text += fmtCandidate(m) + "\n");
-    } else {
-        // fallback: show top few
-        text += "Candidates:\n";
-        matches.slice(0, 6).forEach(m => text += fmtCandidate(m) + "\n");
-    }
-
-    output.textContent = text;
+    output.innerHTML = html;
     show(output);
 }
 
@@ -193,28 +221,35 @@ function printResultsWeighted(usedNotes, noteWeights, matches, tonic) {
 function printResultsSimple(usedNotes, noteWeights) {
     const matches = findMatchingScalesSimple(usedNotes);
     
-    let text = "Notes found:\n";
-    usedNotes.forEach(pc => {
-        text += ` - ${midiToNoteName(pc)}\n`;
-    });
-
-    text += "\n";
+    let html = "";
 
     if (matches.length === 0) {
-        text += "No matching scales found.\n";
-        text += "The notes in this MIDI don't fit any standard Major or Minor scale.";
+        html += '<div class="possible-scales-header">No matching scales found</div>';
+        html += '<p>The notes in this MIDI don\'t fit any standard Major or Minor scale.</p>';
     } else {
-        text += `Possible scales (${matches.length}):\n`;
+        html += `<div class="possible-scales-header">Possible scales: (${matches.length})</div>`;
+        html += '<ul class="scale-list">';
         matches.forEach(m => {
-            text += ` - ${m.rootName} ${m.name}\n`;
+            html += `<li class="scale-item">${m.rootName} ${m.name}</li>`;
         });
-        
-        if (matches.length > 1) {
-            text += "\nNote: Multiple scales can contain the same notes.\n";
-            text += "Use Advanced mode for weighted analysis to find the most likely key.";
-        }
+        html += '</ul>';
+    }
+    
+    html += '<div class="notes-section">';
+    html += '<div class="notes-header">These notes were found in MIDI:</div>';
+    html += '<div class="notes-list">';
+    usedNotes.forEach(pc => {
+        html += `<span class="note-badge">${midiToNoteName(pc)}</span>`;
+    });
+    html += '</div></div>';
+    
+    if (matches.length > 1) {
+        html += '<div class="hint-text">';
+        html += 'Multiple scales can contain the same notes.<br>';
+        html += 'Use Advanced mode for weighted analysis to find the most likely key.';
+        html += '</div>';
     }
 
-    output.textContent = text;
+    output.innerHTML = html;
     show(output);
 }
