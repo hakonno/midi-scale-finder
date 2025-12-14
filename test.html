@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="no">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Scale Detector Test</title>
@@ -35,10 +35,13 @@
     </style>
 </head>
 <body>
-    <h1>Test Scale Detector</h1>
+    <h1>Scale Detector Test</h1>
     <div id="dropzone">
-        Dra og slipp MIDI-filer hit<br>
-        (du kan velge mange samtidig)
+        Drag and drop MIDI files here<br>
+        (you can select many at once)
+    </div>
+    <div id="namingHint" style="margin:10px 0; font-size:0.95em; color:#444;">
+        Filenames must contain key and mode, e.g. <strong>C_Major.mid</strong> or <strong>G#Minor_MyChords.mid</strong>.
     </div>
     <div id="summary"></div>
     <div id="results"></div>
@@ -51,6 +54,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
     <script type="module">
+        const SHOW_TUNER = false; // set to true to show tuner UI
         import { findMatchingScalesWeighted, midiToNoteName } from './scaleDetector.js';
 
         const dropzone = document.getElementById("dropzone");
@@ -59,6 +63,10 @@
         const tuneBtn = document.getElementById("tuneBtn");
         const tuneStatus = document.getElementById("tuneStatus");
         const bestFound = document.getElementById("bestFound");
+
+        if (!SHOW_TUNER) {
+            document.getElementById("tuner").style.display = "none";
+        }
 
         // Default multipliers (from tuned 640-file run)
         const DEFAULT_PARAMS = {
@@ -82,17 +90,19 @@
 
         // In-memory dataset after loading files
         let dataset = [];
+        let skippedFiles = [];
 
-        // Parse filename to get expected key and mode
+        // Parse filename to get expected key and mode (e.g., C_Major.mid, G#Minor.mid, f minor.mid)
         function parseFilename(filename) {
-            // "A_Major_ii_V_I..." -> A Major
-            const parts = filename.replace('.mid', '').split('_');
-            if (parts.length >= 2) {
-                const key = parts[0];    // "A"
-                const mode = parts[1];   // "Major"
-                return { key, mode };
-            }
-            return null;
+            const name = filename.replace(/\.(mid|midi)$/i, '');
+            const match = name.match(/([A-G][#b]?)[\s_\-]*?(Major|Minor)/i);
+            if (!match) return null;
+
+            const keyRaw = match[1];
+            const modeRaw = match[2];
+            const key = keyRaw[0].toUpperCase() + (keyRaw[1] ? keyRaw[1] : '');
+            const mode = modeRaw[0].toUpperCase() + modeRaw.slice(1).toLowerCase();
+            return { key, mode };
         }
 
         // Convert note name to MIDI number (C=0, C#=1, etc.)
@@ -106,7 +116,8 @@
                 "A": 9, "A#": 10, "Bb": 10,
                 "B": 11
             };
-            return map[name];
+            const normalized = name[0].toUpperCase() + name.slice(1);
+            return map[normalized];
         }
 
         dropzone.addEventListener("dragover", (e) => {
@@ -124,6 +135,7 @@
             
             // Reset
             dataset = [];
+            skippedFiles = [];
             results.textContent = "Parsing files...\n\n";
             summary.textContent = '';
             bestFound.textContent = '';
@@ -147,6 +159,7 @@
                 const expected = parseFilename(file.name);
 
                 if (!expected || (expected.mode !== "Major" && expected.mode !== "Minor")) {
+                    skippedFiles.push(`${file.name}: missing key/mode (use e.g. C_Major.mid or G#Minor.mid)`);
                     resolve();
                     return;
                 }
@@ -196,8 +209,8 @@
                     const topName = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][top.root];
                     lines.push(
                         `${isCorrect ? '✓ PASS' : '✗ FAIL'}: ${file.filename}\n` +
-                        `   Forventet: ${midiToNoteName(file.expectedRoot)} ${file.expectedMode}\n` +
-                        `   Fikk: ${topName} ${top.name}\n`
+                        `   Expected: ${midiToNoteName(file.expectedRoot)} ${file.expectedMode}\n` +
+                        `   Got: ${topName} ${top.name}\n`
                     );
                 }
             }
@@ -211,27 +224,31 @@
 
         function renderResults(result) {
             if (result.total === 0) {
-                summary.textContent = 'Ingen filer lastet.';
+                summary.textContent = 'No files loaded.';
                 return;
             }
             const percentage = ((result.correct / result.total) * 100).toFixed(1);
             summary.innerHTML = `
                 <span class="${result.correct === result.total ? 'pass' : 'fail'}">
-                    Resultat: ${result.correct} / ${result.total} riktig (${percentage}%)
+                    Result: ${result.correct} / ${result.total} correct (${percentage}%)
                 </span>
             `;
-            results.textContent = result.details.join('\n');
+            const skippedText = skippedFiles.length
+                ? `\n\nSkipped files (missing key/mode in filename):\n${skippedFiles.join('\n')}`
+                : '';
+            results.textContent = result.details.join('\n') + skippedText;
         }
 
         // Button: run grid search tuning in-browser
         tuneBtn.addEventListener('click', async () => {
+            if (!SHOW_TUNER) return;
             if (!dataset.length) {
-                tuneStatus.textContent = 'Last inn filer først (drag & drop).';
+                tuneStatus.textContent = 'Load files first (drag & drop).';
                 return;
             }
 
             tuneBtn.disabled = true;
-            tuneStatus.textContent = 'Tuning pågår...';
+            tuneStatus.textContent = 'Tuning in progress...';
             bestFound.textContent = '';
 
             const combos = RANGES.tonic.length * RANGES.dominant.length * RANGES.subdominant.length *
@@ -279,7 +296,7 @@
                                     }
 
                                     if (tested % 500 === 0) {
-                                        tuneStatus.textContent = `Fremdrift: ${tested}/${combos} (${((tested/combos)*100).toFixed(1)}%)`;
+                                        tuneStatus.textContent = `Progress: ${tested}/${combos} (${((tested/combos)*100).toFixed(1)}%)`;
                                         await new Promise(r => setTimeout(r, 0));
                                     }
                                 }
@@ -290,7 +307,7 @@
             }
 
             const pct = ((best.score / dataset.length) * 100).toFixed(1);
-            tuneStatus.textContent = `Ferdig. Beste: ${best.score}/${dataset.length} (${pct}%)`;
+            tuneStatus.textContent = `Done. Best: ${best.score}/${dataset.length} (${pct}%)`;
 
             const lines = topList.map((item, idx) => {
                 const lpct = ((item.score / dataset.length) * 100).toFixed(1);
