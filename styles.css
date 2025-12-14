@@ -57,6 +57,11 @@ p { margin: 0 0 10px; color: var(--muted); }
     background: #f3f5ff;
     border: 1px solid var(--border);
 }
+.footer {
+    text-align: center;
+    margin-top: 28px;
+    font-size: 0.95em;
+}
 button {
     font-family: monospace;
     padding: 10px 14px;

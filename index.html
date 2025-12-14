@@ -8,8 +8,8 @@
 </head>
 <body>
     <main class="page">
-        <h1>Simple key detection for MIDI melodies and chord progressions</h1>
-        <p class="muted">Drop a MIDI file to guess its most likely key/scale. </p>
+        <h1>Key detection for MIDI melodies and chord progressions</h1>
+        <p class="muted">It estimates its most likely key/scale. </p>
 
         <div id="dropzone" class="panel">
             Drop MIDI file here
@@ -20,13 +20,19 @@
 
         <div class="panel">
             <h2>What this does</h2>
-            <p>Finds the most likely tonic and whether it is Major or Minor based on pitch-class usage in your MIDI.</p>
-            <h2>Why did it say Major not Minor?</h2>
-            <p>Major and its relative minor share notes (e.g., C Major and A Minor). If your melody leans to the shared notes, the detector may prefer the relative key.</p>
-            <h2>What is the tonic?</h2>
-            <p>The tonic is the home note of the key—the pitch everything feels resolved to. It's what you expect to hear at the end of a phrase.</p>
+            <p>Finds the most likely tonic and whether it is Major or Minor based on the notes in your MIDI.</p>
+            <h2>Only Major and Minor</h2>
+            <p>For now, the detector only considers Major and Minor scales.</p>
+            <h2>What are relative scales?</h2>
+            <p>Major and its relative minor share all notes (e.g., C Major and A Minor all have C, D, E, F, G, A, B). Depending on which notes the melody leans more to, the detector may prefer one over the other.</p>
+            <h2>What does "tonic" mean?</h2>
+            <p>The tonic is the pitch everything feels drawn back to. Knowing the tonic instantly tells you the song's key, so you know which chords and melodies fit naturally.</p>
         </div>
     </main>
+
+    <div class="footer">
+        Open source — contributions welcome on <a href="https://github.com/hakonno/midi-scale-finder" target="_blank" rel="noopener">GitHub</a>.
+    </div>
 
     <script type="module" src="./script.js"></script>
 </body>
