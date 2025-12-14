@@ -1,9 +1,33 @@
-export { readMidi, midiToNoteName, findMatchingScalesWeighted };
+export { readMidi, midiToNoteName, findMatchingScalesWeighted, findMatchingScalesSimple };
 
 const SCALES = {
     "Major":       [0, 2, 4, 5, 7, 9, 11],
     "Minor":       [0, 2, 3, 5, 7, 8, 10]
 };
+
+// Simple mode: find all scales that contain ALL the used notes
+function findMatchingScalesSimple(usedNotes) {
+    const results = [];
+
+    for (let root = 0; root < 12; root++) {
+        for (const [name, intervals] of Object.entries(SCALES)) {
+            const scale = buildScale(root, intervals);
+            
+            // Check if ALL used notes are in this scale
+            const allNotesInScale = usedNotes.every(note => scale.includes(note));
+            
+            if (allNotesInScale) {
+                results.push({
+                    root,
+                    name,
+                    rootName: midiToNoteName(root)
+                });
+            }
+        }
+    }
+
+    return results;
+}
 
 // Helper function to convert MIDI note number to note name
 function midiToNoteName(pc) {

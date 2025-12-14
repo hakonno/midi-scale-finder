@@ -1,12 +1,45 @@
-import { readMidi, midiToNoteName } from './scaleDetector.js';
+import { readMidi, midiToNoteName, findMatchingScalesSimple } from './scaleDetector.js';
 
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("fileInput");
 const info = document.getElementById("info");
 const output = document.getElementById("output");
+const modeSimple = document.getElementById("modeSimple");
+const modeAdvanced = document.getElementById("modeAdvanced");
+
+// Store last processed data for mode switching
+let lastProcessedData = null;
 
 const hide = (el) => el.classList.add("hidden");
 const show = (el) => el.classList.remove("hidden");
+
+// Get current mode
+function getMode() {
+    return modeSimple.checked ? "simple" : "advanced";
+}
+
+// Handle mode change
+modeSimple.addEventListener("change", () => {
+    if (lastProcessedData) {
+        displayResults(lastProcessedData);
+    }
+});
+modeAdvanced.addEventListener("change", () => {
+    if (lastProcessedData) {
+        displayResults(lastProcessedData);
+    }
+});
+
+// Display results based on current mode
+function displayResults(data) {
+    const { usedNotes, noteWeights, matches, tonic } = data;
+    
+    if (getMode() === "simple") {
+        printResultsSimple(usedNotes, noteWeights);
+    } else {
+        printResultsWeighted(usedNotes, noteWeights, matches, tonic);
+    }
+}
 
 // Process a file (used by both drag-drop and file input)
 function processFile(file) {
@@ -14,6 +47,7 @@ function processFile(file) {
     output.textContent = "";
     hide(info);
     hide(output);
+    lastProcessedData = null;
 
     if (!file) {
         output.textContent = "No file selected";
@@ -34,7 +68,10 @@ function processFile(file) {
 
     reader.onload = () => {
         const arrayBuffer = reader.result;
-        readMidi(arrayBuffer, printResultsWeighted);
+        readMidi(arrayBuffer, (usedNotes, noteWeights, matches, tonic) => {
+            lastProcessedData = { usedNotes, noteWeights, matches, tonic };
+            displayResults(lastProcessedData);
+        });
     }
 
     reader.onerror = () => {
@@ -146,6 +183,36 @@ function printResultsWeighted(usedNotes, noteWeights, matches, tonic) {
         // fallback: show top few
         text += "Candidates:\n";
         matches.slice(0, 6).forEach(m => text += fmtCandidate(m) + "\n");
+    }
+
+    output.textContent = text;
+    show(output);
+}
+
+// Simple mode: show all scales that contain all the notes
+function printResultsSimple(usedNotes, noteWeights) {
+    const matches = findMatchingScalesSimple(usedNotes);
+    
+    let text = "Notes found:\n";
+    usedNotes.forEach(pc => {
+        text += ` - ${midiToNoteName(pc)}\n`;
+    });
+
+    text += "\n";
+
+    if (matches.length === 0) {
+        text += "No matching scales found.\n";
+        text += "The notes in this MIDI don't fit any standard Major or Minor scale.";
+    } else {
+        text += `Possible scales (${matches.length}):\n`;
+        matches.forEach(m => {
+            text += ` - ${m.rootName} ${m.name}\n`;
+        });
+        
+        if (matches.length > 1) {
+            text += "\nNote: Multiple scales can contain the same notes.\n";
+            text += "Use Advanced mode for weighted analysis to find the most likely key.";
+        }
     }
 
     output.textContent = text;
