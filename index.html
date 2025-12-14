@@ -11,20 +11,6 @@
         <h1>Key detection for MIDI melodies and chord progressions</h1>
         <p class="muted">It estimates its most likely key/scale. </p>
 
-        <fieldset class="mode-selector panel" aria-label="Analysis mode">
-            <legend>Analysis Mode</legend>
-            <label class="mode-option">
-                <input type="radio" name="mode" value="simple" id="modeSimple" checked>
-                <span>Simple</span>
-                <span class="mode-desc">— Shows all scales that contain the notes</span>
-            </label>
-            <label class="mode-option">
-                <input type="radio" name="mode" value="advanced" id="modeAdvanced">
-                <span>Advanced</span>
-                <span class="mode-desc">— More complex analysis to find the most likely key</span>
-            </label>
-        </fieldset>
-
         <div id="dropzone" class="panel" role="button" tabindex="0" aria-label="Drop MIDI file here or click to select file">
             <div id="dropzoneContent">
                 <div>Drop MIDI file here or click to choose</div>
@@ -37,9 +23,8 @@
         <section class="panel" aria-labelledby="about-heading">
             <h2 id="about-heading">What this does</h2>
             <p>Analyzes MIDI files to determine their key/scale. For now, it only supports Major and Minor scales.</p>
-            <h2>Simple vs Advanced mode</h2>
-            <p><strong>Simple mode</strong> lists all possible scales that contain the notes in your MIDI. As an example, a MIDI using the notes C, D, E, F, G, A, B could be either C Major or A Minor, since Major scales and their relative minors share all the same notes.</p>
-            <p><strong>Advanced mode</strong> uses weighted analysis (note duration, tonic/dominant emphasis) to determine which scale is most likely. This helps distinguish between relative scales by analyzing which notes the melody emphasizes.</p>
+            <h2>How results are shown</h2>
+            <p>The top card shows a weighted analysis that estimates the most likely key (using note emphasis and duration). Below it, there’s a collapsible list of every Major/Minor scale that fits the detected pitch set, so you can compare the raw possibilities.</p>
             <h2>What does "tonic" mean?</h2>
             <p>The tonic is the "home" note—the pitch everything feels drawn back to. Knowing the tonic tells you the song's key, so you know which chords and melodies fit naturally.</p>
         </section>
