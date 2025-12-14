@@ -4,6 +4,9 @@ const dropzone = document.getElementById("dropzone");
 const info = document.getElementById("info");
 const output = document.getElementById("output");
 
+const hide = (el) => el.classList.add("hidden");
+const show = (el) => el.classList.remove("hidden");
+
 // Handle drag over
 dropzone.addEventListener("dragover", (event) => {
     event.preventDefault();
@@ -20,13 +23,20 @@ dropzone.addEventListener("drop", (event) => {
     event.preventDefault();
     dropzone.style.background = "";
 
+    info.textContent = "";
+    output.textContent = "";
+    hide(info);
+    hide(output);
+
     const file = event.dataTransfer.files[0];
 
     if (!file.name.endsWith(".mid") && !file.name.endsWith(".midi")) {
         output.textContent = "Please drop a MIDI file";
+        show(output);
         return;
     }
     info.textContent = "File: " + file.name;
+    show(info);
 
     const reader = new FileReader();
 
@@ -104,4 +114,5 @@ function printResultsWeighted(usedNotes, noteWeights, matches, tonic) {
     }
 
     output.textContent = text;
+    show(output);
 }

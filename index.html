@@ -1,21 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <title>MIDI to Scale Finder</title>
-        <script src="https://unpkg.com/@tonejs/midi/build/Midi.js"></script>
-    </head>
-    <body>
-        <h1>MIDI to Scale Finder</h1>
+<head>
+    <meta charset="UTF-8">
+    <title>MIDI to Scale Finder</title>
+    <script src="https://unpkg.com/@tonejs/midi/build/Midi.js"></script>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+    <main class="page">
+        <h1>Simple key detection for MIDI melodies and chord progressions</h1>
+        <p class="muted">Drop a MIDI file to guess its most likely key/scale. </p>
 
-        <div id="dropzone">
+        <div id="dropzone" class="panel">
             Drop MIDI file here
         </div>
 
-        
-        <div id="info"></div>
-        <pre id="output"></pre>
+        <div id="info" class="panel hidden" aria-live="polite"></div>
+        <pre id="output" class="hidden" aria-live="polite"></pre>
 
-        <script type="module" src="./script.js"></script>
-    </body>
+        <div class="panel">
+            <h2>What this does</h2>
+            <p>Finds the most likely tonic and whether it is Major or Minor based on pitch-class usage in your MIDI.</p>
+            <h2>Why did it say Major not Minor?</h2>
+            <p>Major and its relative minor share notes (e.g., C Major and A Minor). If your melody leans to the shared notes, the detector may prefer the relative key.</p>
+            <h2>What is the tonic?</h2>
+            <p>The tonic is the home note of the key—the pitch everything feels resolved to. It's what you expect to hear at the end of a phrase.</p>
+        </div>
+    </main>
+
+    <script type="module" src="./script.js"></script>
+</body>
 </html>

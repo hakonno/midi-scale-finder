@@ -3,54 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <title>Scale Detector Test</title>
-    <style>
-        body {
-            font-family: monospace;
-            max-width: 800px;
-            margin: 50px auto;
-            padding: 20px;
-        }
-        #dropzone {
-            border: 3px dashed #666;
-            padding: 50px;
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        #dropzone.drag-over {
-            background: #333;
-            color: white;
-        }
-        .pass { color: green; }
-        .fail { color: red; }
-        #results {
-            white-space: pre-wrap;
-        }
-        #summary {
-            font-size: 1.2em;
-            font-weight: bold;
-            margin: 20px 0;
-            padding: 15px;
-            background: #f0f0f0;
-        }
-    </style>
+    <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-    <h1>Scale Detector Test</h1>
-    <div id="dropzone">
-        Drag and drop MIDI files here<br>
-        (you can select many at once)
-    </div>
-    <div id="namingHint" style="margin:10px 0; font-size:0.95em; color:#444;">
-        Filenames must contain key and mode, e.g. <strong>C_Major.mid</strong> or <strong>G#Minor_MyChords.mid</strong>.
-    </div>
-    <div id="summary"></div>
-    <div id="results"></div>
+        <main class="page">
+            <h1>Scale Detector Test</h1>
+            <p class="muted">Internal accuracy tester with grid-search tuner (hidden by default).</p>
 
-    <div id="tuner" style="margin-top:20px; padding:12px; border:1px solid #ccc; border-radius:8px;">
-        <button id="tuneBtn">Tune multipliers (grid search in browser)</button>
-        <div id="tuneStatus" style="margin-top:8px; font-size:0.95em;"></div>
-        <div id="bestFound" style="margin-top:8px; font-family:monospace;"></div>
-    </div>
+            <div id="dropzone" class="panel">
+                Drag and drop MIDI files here<br>
+                (you can select many at once)
+            </div>
+            <div id="namingHint" class="muted hint">
+                Filenames must contain key and mode, e.g. <strong>C_Major.mid</strong> or <strong>G#Minor_MyChords.mid</strong>.
+            </div>
+            <div id="summary"></div>
+            <div id="results"></div>
+
+            <div id="tuner" class="panel">
+                <button id="tuneBtn">Tune multipliers (grid search in browser)</button>
+                <div id="tuneStatus" style="margin-top:8px; font-size:0.95em;"></div>
+                <div id="bestFound" style="margin-top:8px; font-family:monospace;"></div>
+            </div>
+        </main>
 
     <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
     <script type="module">
