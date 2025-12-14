@@ -1,11 +1,49 @@
 import { readMidi, midiToNoteName } from './scaleDetector.js';
 
 const dropzone = document.getElementById("dropzone");
+const fileInput = document.getElementById("fileInput");
 const info = document.getElementById("info");
 const output = document.getElementById("output");
 
 const hide = (el) => el.classList.add("hidden");
 const show = (el) => el.classList.remove("hidden");
+
+// Process a file (used by both drag-drop and file input)
+function processFile(file) {
+    info.textContent = "";
+    output.textContent = "";
+    hide(info);
+    hide(output);
+
+    if (!file) {
+        output.textContent = "No file selected";
+        show(output);
+        return;
+    }
+
+    if (!file.name.endsWith(".mid") && !file.name.endsWith(".midi")) {
+        output.textContent = "Please select a MIDI file (.mid or .midi)";
+        show(output);
+        return;
+    }
+    
+    info.textContent = "File: " + file.name;
+    show(info);
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+        const arrayBuffer = reader.result;
+        readMidi(arrayBuffer, printResultsWeighted);
+    }
+
+    reader.onerror = () => {
+        output.textContent = "Error reading file. Please try again.";
+        show(output);
+    }
+
+    reader.readAsArrayBuffer(file);
+}
 
 // Handle drag over
 dropzone.addEventListener("dragover", (event) => {
@@ -22,31 +60,28 @@ dropzone.addEventListener("dragleave", () => {
 dropzone.addEventListener("drop", (event) => {
     event.preventDefault();
     dropzone.style.background = "";
-
-    info.textContent = "";
-    output.textContent = "";
-    hide(info);
-    hide(output);
-
+    
     const file = event.dataTransfer.files[0];
+    processFile(file);
+});
 
-    if (!file.name.endsWith(".mid") && !file.name.endsWith(".midi")) {
-        output.textContent = "Please drop a MIDI file";
-        show(output);
-        return;
+// Handle click to open file picker
+dropzone.addEventListener("click", () => {
+    fileInput.click();
+});
+
+// Handle keyboard activation (Enter or Space)
+dropzone.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        fileInput.click();
     }
-    info.textContent = "File: " + file.name;
-    show(info);
+});
 
-    const reader = new FileReader();
-
-    reader.onload = () => {
-        const arrayBuffer = reader.result;
-        readMidi(arrayBuffer, printResultsWeighted);
-    }
-
-    reader.readAsArrayBuffer(file);
-
+// Handle file selection from input
+fileInput.addEventListener("change", (event) => {
+    const file = event.target.files[0];
+    processFile(file);
 });
 
 function printResultsWeighted(usedNotes, noteWeights, matches, tonic) {

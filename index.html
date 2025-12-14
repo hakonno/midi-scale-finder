@@ -11,15 +11,16 @@
         <h1>Key detection for MIDI melodies and chord progressions</h1>
         <p class="muted">It estimates its most likely key/scale. </p>
 
-        <div id="dropzone" class="panel">
-            Drop MIDI file here
+        <div id="dropzone" class="panel" role="button" tabindex="0" aria-label="Drop MIDI file here or click to select file">
+            Drop MIDI file here or click to choose
+            <input type="file" id="fileInput" accept=".mid,.midi" style="display: none;" aria-label="Choose MIDI file">
         </div>
 
-        <div id="info" class="panel hidden" aria-live="polite"></div>
-        <pre id="output" class="hidden" aria-live="polite"></pre>
+        <div id="info" class="panel hidden" aria-live="polite" role="status"></div>
+        <pre id="output" class="hidden" aria-live="polite" role="region" aria-label="Analysis results"></pre>
 
-        <div class="panel">
-            <h2>What this does</h2>
+        <section class="panel" aria-labelledby="about-heading">
+            <h2 id="about-heading">What this does</h2>
             <p>Finds the most likely tonic and whether it is Major or Minor based on the notes in your MIDI.</p>
             <h2>Only Major and Minor</h2>
             <p>For now, the detector only considers Major and Minor scales.</p>
@@ -27,12 +28,12 @@
             <p>Major and its relative minor share all notes (e.g., C Major and A Minor all have C, D, E, F, G, A, B). Depending on which notes the melody leans more to, the detector may prefer one over the other.</p>
             <h2>What does "tonic" mean?</h2>
             <p>The tonic is the pitch everything feels drawn back to. Knowing the tonic instantly tells you the song's key, so you know which chords and melodies fit naturally.</p>
-        </div>
+        </section>
     </main>
 
-    <div class="footer">
-        Open source — contributions welcome on <a href="https://github.com/hakonno/midi-scale-finder" target="_blank" rel="noopener">GitHub</a>.
-    </div>
+    <footer class="footer" role="contentinfo">
+        Open source — contributions welcome on <a href="https://github.com/hakonno/midi-scale-finder" target="_blank" rel="noopener noreferrer">GitHub</a>.
+    </footer>
 
     <script type="module" src="./script.js"></script>
 </body>
