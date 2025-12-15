@@ -218,9 +218,9 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
 
 .vpiano-black-key {
     position: absolute;
-    left: 10px;
+    left: 0;
     height: var(--black-h);
-    width: calc(100% - 20px);
+    width: calc(100% - 10px);
     background: #111;
     border-color: rgba(255, 255, 255, 0.12);
     border-radius: 7px;
