@@ -518,6 +518,9 @@ scaleOutput.addEventListener('contextmenu', (e) => {
     if (!Number.isFinite(root) || !mode) return;
 
     const midiSeq = buildScalePreviewMidiSequence(root, mode);
+    if (piano && typeof piano.unlockAudioFromGesture === 'function') {
+        piano.unlockAudioFromGesture();
+    }
     if (piano && typeof piano.previewMidiSequence === 'function') {
         piano.previewMidiSequence(midiSeq, { velocity: 0.85, intervalMs: 190, endPauseMs: 160, endVelocity: 1 });
         return;
@@ -899,6 +902,11 @@ if (keyboardInputMode) {
 
 if (keyboardModeToggle) {
     keyboardModeToggle.addEventListener('change', () => {
+        if (keyboardModeToggle.checked) {
+            if (piano && typeof piano.unlockAudioFromGesture === 'function') {
+                piano.unlockAudioFromGesture();
+            }
+        }
         setKeyboardModeEnabled(keyboardModeToggle.checked);
     });
 }
@@ -935,6 +943,9 @@ window.addEventListener('keydown', (e) => {
     syncPressedFromKeyboard();
 
     lastAppliedScale = null;
+    if (piano && typeof piano.unlockAudioFromGesture === 'function') {
+        piano.unlockAudioFromGesture();
+    }
     if (piano && typeof piano.playMidiNote === 'function') {
         piano.playMidiNote(midi, 0.95);
     }
