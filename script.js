@@ -1,4 +1,9 @@
-import { readMidi, midiToNoteName, findMatchingScalesSimple } from './scaleDetector.js';
+import {
+    readMidi,
+    midiToNoteName,
+    findMatchingScalesSimple,
+    getScalePitchClasses
+} from './scaleDetector.js';
 
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("fileInput");
@@ -11,19 +16,10 @@ let lastProcessedData = null;
 const hide = (el) => el.classList.add("hidden");
 const show = (el) => el.classList.remove("hidden");
 
-// Display combined results (advanced upfront, simple collapsed)
 function displayResults(data) {
-    const { usedNotes, noteWeights, matches } = data;
+    const { usedNotes, noteWeights, matches: weightedMatches } = data;
 
-    const advancedSection = buildWeightedSection(noteWeights, matches);
-    const simpleSection = buildSimpleSection(usedNotes);
-
-    output.innerHTML = `${advancedSection}
-        <details class="simple-details">
-            <summary>Scales that fit these notes</summary>
-            ${simpleSection}
-        </details>`;
-
+    output.innerHTML = buildResultsLayout(usedNotes, noteWeights, weightedMatches);
     show(output);
 }
 
@@ -69,18 +65,18 @@ function processFile(file) {
 // Handle drag over
 dropzone.addEventListener("dragover", (event) => {
     event.preventDefault();
-    dropzone.style.background = "#333";
+    dropzone.classList.add("drag-over");
 });
 
 // Handle drag leave
 dropzone.addEventListener("dragleave", () => {
-    dropzone.style.background = "";
+    dropzone.classList.remove("drag-over");
 });
 
 // Handle file drop
 dropzone.addEventListener("drop", (event) => {
     event.preventDefault();
-    dropzone.style.background = "";
+    dropzone.classList.remove("drag-over");
     
     const file = event.dataTransfer.files[0];
     processFile(file);
@@ -105,129 +101,165 @@ fileInput.addEventListener("change", (event) => {
     processFile(file);
 });
 
-function buildWeightedSection(noteWeights, matches) {
-    if (!matches || matches.length === 0 || noteWeights.size === 0) {
-        return `
-            <div class="result-primary">
-                <div class="key-estimation">No likely key found from weighted analysis.</div>
-            </div>
-        `;
+function buildResultsLayout(usedNotes, noteWeights, weightedMatches) {
+    if (!weightedMatches || weightedMatches.length === 0 || noteWeights.size === 0) {
+        return `<div class="result-block">
+            <div class="possible-scales-header">No results</div>
+            <p>Could not detect notes from this MIDI.</p>
+        </div>`;
     }
 
-    const top = matches[0];
-    const confVal = (top.score / (top.score + top.missing)) || 0;
-    const confPct = (confVal * 100).toFixed(0);
-    
-    let confClass = "conf-low";
-    let confLabel = "Low";
-    if (confVal >= 0.8) { confClass = "conf-high"; confLabel = "High"; }
-    else if (confVal >= 0.5) { confClass = "conf-med"; confLabel = "Medium"; }
+    const simpleMatches = findMatchingScalesSimple(usedNotes);
+    const rankByKey = new Map(
+        weightedMatches.map((m, idx) => [`${m.root}-${m.name}`, idx])
+    );
 
-    const rootName = midiToNoteName(top.root);
-    const thirdInterval = top.name === "Major" ? 4 : 3;
-    const thirdName = midiToNoteName((top.root + thirdInterval) % 12);
-    const dominantName = midiToNoteName((top.root + 7) % 12);
-    
+    const candidates = (simpleMatches.length > 0)
+        ? simpleMatches
+            .slice()
+            .sort((a, b) => (rankByKey.get(`${a.root}-${a.name}`) ?? 999) - (rankByKey.get(`${b.root}-${b.name}`) ?? 999))
+        : weightedMatches.slice(0, 12).map(m => ({ root: m.root, name: m.name, rootName: midiToNoteName(m.root) }));
+
+    const best = candidates[0];
+
+    const headerText = (simpleMatches.length > 0)
+        ? `Possible scales (contain all detected notes): (${candidates.length})`
+        : `Closest Major/Minor matches: (${candidates.length})`;
+
+    const scalesHtml = buildPossibleScalesSection(candidates, best, noteWeights);
+    const whyHtml = buildWhyDetails(best, noteWeights);
+    const notesHtml = buildNotesFoundSection(usedNotes, noteWeights);
+
+    const hintHtml = (simpleMatches.length > 1)
+        ? `<div class="hint-text">Many scales can contain the same notes. The highlighted one is the best guess based on which notes are emphasized.</div>`
+        : "";
+
+    return `
+        <div class="result-block">
+            <div class="possible-scales-header">${headerText}</div>
+            ${scalesHtml}
+            ${whyHtml}
+        </div>
+        <div class="result-block">
+            ${notesHtml}
+            ${hintHtml}
+        </div>
+    `;
+}
+
+function sumWeights(noteWeights) {
+    let total = 0;
+    for (const v of noteWeights.values()) total += v;
+    return total;
+}
+
+function computeScaleCoveragePct(root, mode, noteWeights) {
+    const total = sumWeights(noteWeights);
+    if (total <= 0) return { inPct: 0, outPct: 0 };
+
+    const scaleNotes = getScalePitchClasses(root, mode);
+    let inTotal = 0;
+    for (const [pc, w] of noteWeights.entries()) {
+        if (scaleNotes.includes(pc)) inTotal += w;
+    }
+    const inPct = Math.round((inTotal / total) * 100);
+    const outPct = Math.max(0, 100 - inPct);
+    return { inPct, outPct };
+}
+
+function buildPossibleScalesSection(candidates, best, noteWeights) {
+    const items = candidates.map(m => {
+        const isBest = m.root === best.root && m.name === best.name;
+        const { inPct, outPct } = computeScaleCoveragePct(m.root, m.name, noteWeights);
+        const label = `${midiToNoteName(m.root)} ${m.name}`;
+        const meta = (outPct > 0)
+            ? `${inPct}% match · ${outPct}% outside`
+            : `${inPct}% match`;
+
+        return `
+            <li class="scale-item${isBest ? " best" : ""}">
+                <div class="scale-line">
+                    <span class="scale-name">${label}</span>
+                    ${isBest ? '<span class="scale-tag">Best guess</span>' : ''}
+                </div>
+                <div class="scale-meta">${meta}</div>
+            </li>
+        `;
+    }).join("");
+
+    return `<ul class="scale-list">${items}</ul>`;
+}
+
+function buildWhyDetails(best, noteWeights) {
+    if (!best || noteWeights.size === 0) return "";
+
+    const rootName = midiToNoteName(best.root);
+    const thirdInterval = best.name === "Major" ? 4 : 3;
+    const thirdName = midiToNoteName((best.root + thirdInterval) % 12);
+    const dominantName = midiToNoteName((best.root + 7) % 12);
+
     const reasons = [];
-    const rootWeight = noteWeights.get(top.root) || 0;
+    const rootWeight = noteWeights.get(best.root) || 0;
     const maxWeight = Math.max(...noteWeights.values());
 
     if (maxWeight > 0) {
         if (rootWeight === maxWeight) {
-            reasons.push(`Tonic (<strong>${rootName}</strong>) is the most frequent note`);
+            reasons.push(`<strong>${rootName}</strong> is the most-used note`);
         } else if (rootWeight > maxWeight * 0.6) {
-            reasons.push(`Tonic (<strong>${rootName}</strong>) is prominent`);
+            reasons.push(`<strong>${rootName}</strong> is used a lot`);
         }
 
-        const thirdWeight = noteWeights.get((top.root + thirdInterval) % 12) || 0;
+        const thirdPc = (best.root + thirdInterval) % 12;
+        const thirdWeight = noteWeights.get(thirdPc) || 0;
         if (thirdWeight > maxWeight * 0.3) {
-            reasons.push(`${top.name} third (<strong>${thirdName}</strong>) is emphasized`);
+            reasons.push(`The <strong>${thirdName}</strong> (${best.name} 3rd) stands out`);
         } else if (thirdWeight > 0) {
-            reasons.push(`${top.name} third (<strong>${thirdName}</strong>) is present`);
+            reasons.push(`The <strong>${thirdName}</strong> (${best.name} 3rd) is present`);
         }
 
-        const domWeight = noteWeights.get((top.root + 7) % 12) || 0;
+        const domPc = (best.root + 7) % 12;
+        const domWeight = noteWeights.get(domPc) || 0;
         if (domWeight > maxWeight * 0.5) {
-            reasons.push(`Dominant (<strong>${dominantName}</strong>) is strong`);
+            reasons.push(`The dominant <strong>${dominantName}</strong> is strong`);
         } else if (domWeight > 0) {
-            reasons.push(`Dominant (<strong>${dominantName}</strong>) appears`);
+            reasons.push(`The dominant <strong>${dominantName}</strong> appears`);
         }
     }
 
-    let html = `
-        <div class="result-primary">
-            <div class="key-estimation">
-                Estimated key: <span class="key-name">${midiToNoteName(top.root)} ${top.name}</span>
-            </div>
-            <div class="confidence-badge ${confClass}">
-                Confidence: ${confLabel} (${confPct}%)
-            </div>
-        </div>
+    if (reasons.length === 0) {
+        reasons.push("No clear single-note emphasis; this is the closest overall match.");
+    }
 
-        <div class="why-section">
-            <div class="why-title">Why?</div>
-            <ul class="why-list">
-                ${reasons.map(r => `<li>${r}</li>`).join('')}
-            </ul>
-        </div>
-
-        <details class="alternatives-details">
-            <summary>See alternatives</summary>
-            <div class="alternatives-content">
-    `;
-
-    html += `<table class="alt-table">
-        <thead><tr><th>Key</th><th>Confidence</th><th>Score</th></tr></thead>
-        <tbody>`;
-    
-    matches.slice(1, 11).forEach(m => {
-        const c = (m.score / (m.score + m.missing)) || 0;
-        const p = (c * 100).toFixed(0);
-        html += `<tr>
-            <td>${midiToNoteName(m.root)} ${m.name}</td>
-            <td>${p}%</td>
-            <td>${m.score.toFixed(1)}</td>
-        </tr>`;
-    });
-    
-    html += `</tbody></table>
+    return `
+        <details class="why-details">
+            <summary>Why the best guess?</summary>
+            <div class="why-section">
+                <ul class="why-list">
+                    ${reasons.map(r => `<li>${r}</li>`).join('')}
+                </ul>
             </div>
         </details>
     `;
-
-    return html;
 }
 
-function buildSimpleSection(usedNotes) {
-    const matches = findMatchingScalesSimple(usedNotes);
-    
-    let html = "";
+function buildNotesFoundSection(usedNotes, noteWeights) {
+    const total = sumWeights(noteWeights);
+    const safeTotal = total > 0 ? total : 1;
 
-    if (matches.length === 0) {
-        html += '<div class="possible-scales-header">No matching scales found</div>';
-        html += '<p>The notes in this MIDI don\'t fit any standard Major or Minor scale.</p>';
-    } else {
-        html += `<div class="possible-scales-header">Possible scales: (${matches.length})</div>`;
-        html += '<ul class="scale-list">';
-        matches.forEach(m => {
-            html += `<li class="scale-item">${m.rootName} ${m.name}</li>`;
-        });
-        html += '</ul>';
-    }
-    
-    html += '<div class="notes-section">';
-    html += '<div class="notes-header">These notes were found in MIDI:</div>';
-    html += '<div class="notes-list">';
-    usedNotes.forEach(pc => {
-        html += `<span class="note-badge">${midiToNoteName(pc)}</span>`;
-    });
-    html += '</div></div>';
-    
-    if (matches.length > 1) {
-        html += '<div class="hint-text">';
-        html += 'Multiple scales can contain the same notes. Weighted analysis above helps pick the tonic.';
-        html += '</div>';
-    }
+    const chips = usedNotes.map(pc => {
+        const pct = Math.round(((noteWeights.get(pc) || 0) / safeTotal) * 100);
+        return `
+            <div class="note-chip">
+                <div class="note-name">${midiToNoteName(pc)}</div>
+                <div class="note-meta">${pct}%</div>
+            </div>
+        `;
+    }).join("");
 
-    return html;
+    return `
+        <div class="notes-section">
+            <div class="notes-header">These notes were found in MIDI:</div>
+            <div class="notes-list">${chips}</div>
+        </div>
+    `;
 }

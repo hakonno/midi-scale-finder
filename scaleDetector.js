@@ -1,9 +1,21 @@
-export { readMidi, midiToNoteName, findMatchingScalesWeighted, findMatchingScalesSimple };
+export {
+    readMidi,
+    midiToNoteName,
+    findMatchingScalesWeighted,
+    findMatchingScalesSimple,
+    getScalePitchClasses
+};
 
 const SCALES = {
     "Major":       [0, 2, 4, 5, 7, 9, 11],
     "Minor":       [0, 2, 3, 5, 7, 8, 10]
 };
+
+function getScalePitchClasses(root, mode) {
+    const intervals = SCALES[mode];
+    if (!intervals) return [];
+    return buildScale(root, intervals);
+}
 
 // Simple mode: find all scales that contain ALL the used notes
 function findMatchingScalesSimple(usedNotes) {
