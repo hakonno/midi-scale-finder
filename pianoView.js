@@ -34,6 +34,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
     const BLACK_KEY_HEIGHT = 32;
 
     let selected = new Set();
+    let pressed = new Set();
     let midiPctByPc = new Map();
     let suppressCallback = false;
 
@@ -61,13 +62,13 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         }
     }
 
-    function playPc(pc, velocity = 1) {
+    function playVoice({ freq, pc, velocity = 1 }) {
         try {
             ensureAudioContext();
             if (!audioContext) return;
 
             const now = audioContext.currentTime;
-            const freq = C4_HZ * Math.pow(2, (pc % 12) / 12);
+            const safeFreq = typeof freq === 'number' && Number.isFinite(freq) ? freq : C4_HZ;
 
             const vel = Math.max(0, Math.min(1, velocity));
 
@@ -114,7 +115,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
 
                 // Low notes: triangle for body; high notes: sine for clarity
                 osc.type = (pc % 12) <= 6 ? 'triangle' : 'sine';
-                osc.frequency.setValueAtTime(freq * p.ratio, now);
+                osc.frequency.setValueAtTime(safeFreq * p.ratio, now);
                 osc.detune.setValueAtTime((Math.random() - 0.5) * 3, now);
                 g.gain.setValueAtTime(p.gain, now);
                 osc.connect(g);
@@ -156,6 +157,19 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         } catch {
             // Ignore audio failures (e.g. blocked by browser policy)
         }
+    }
+
+    function playPc(pc, velocity = 1) {
+        const freq = C4_HZ * Math.pow(2, (pc % 12) / 12);
+        playVoice({ freq, pc, velocity });
+    }
+
+    function playMidiNote(midi, velocity = 1) {
+        const midiNum = Number(midi);
+        if (!Number.isFinite(midiNum)) return;
+        const freq = 440 * Math.pow(2, (midiNum - 69) / 12);
+        const pc = ((midiNum % 12) + 12) % 12;
+        playVoice({ freq, pc, velocity });
     }
 
     function previewPitchClasses(pcs, { velocity = 0.85, intervalMs = 190 } = {}) {
@@ -241,6 +255,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         keys.forEach((key) => {
             const pc = Number(key.dataset.pc);
             key.classList.toggle('selected', selected.has(pc));
+            key.classList.toggle('pressed', pressed.has(pc));
             key.setAttribute('aria-pressed', selected.has(pc) ? 'true' : 'false');
         });
     }
@@ -292,6 +307,11 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         if (!silent) emitChange();
     }
 
+    function setPressedPitchClasses(pcs) {
+        pressed = new Set((pcs || []).map((v) => Number(v)));
+        syncAllKeyStates();
+    }
+
     function setMidiPercentages(pctMap) {
         midiPctByPc = new Map();
 
@@ -321,9 +341,11 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
 
     return {
         setSelectedPitchClasses,
+        setPressedPitchClasses,
         setMidiPercentages,
         clearMidiPercentages,
         getSelectedPitchClasses,
+        playMidiNote,
         toggleNote: (noteName) => {
             const idx = PITCH_CLASS_TO_SHARP_NAME.indexOf(noteName);
             if (idx >= 0) togglePc(idx, { play: false });

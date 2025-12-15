@@ -21,6 +21,9 @@ const redoBtn = document.getElementById('redoBtn');
 const selectionHint = document.getElementById('selectionHint');
 const pianoMount = document.getElementById('pianoMount');
 
+const keyboardModeToggle = document.getElementById('keyboardModeToggle');
+const keyboardInputMode = document.getElementById('keyboardInputMode');
+
 // Baseline (from MIDI) and current selection state
 let midiBaselineNoteWeights = null; // Map<pitchClass, duration>
 let midiBaselinePitchClasses = null; // Set<pitchClass>
@@ -32,6 +35,81 @@ let historyIndex = -1;
 let suppressHistory = false;
 
 let lastAppliedScale = null; // { root:number, mode:string } | null
+
+// Keyboard piano mode
+let keyboardModeEnabled = false;
+let keyboardMode = 'record'; // 'record' | 'live'
+const heldKeyboardCodes = new Set();
+
+// Map physical key positions (event.code) to MIDI note numbers.
+// Layout-agnostic: uses `event.code` (physical key), not `event.key` (label).
+const KEYBOARD_MIDI_BY_CODE = {
+    // Lower octave white keys: C4 -> E5
+    KeyZ: 60, // C4
+    KeyX: 62, // D4
+    KeyC: 64, // E4
+    KeyV: 65, // F4
+    KeyB: 67, // G4
+    KeyN: 69, // A4
+    KeyM: 71, // B4
+    Comma: 72, // C5
+    Period: 74, // D5
+    Slash: 76, // E5
+
+    // Lower octave black keys
+    KeyS: 61, // C#4
+    KeyD: 63, // D#4
+    KeyG: 66, // F#4
+    KeyH: 68, // G#4
+    KeyJ: 70  // A#4
+    // (no black keys between E-F and B-C)
+};
+
+// Upper octave: C5 -> E6
+Object.assign(KEYBOARD_MIDI_BY_CODE, {
+    KeyQ: 72, // C5
+    KeyW: 74, // D5
+    KeyE: 76, // E5
+    KeyR: 77, // F5
+    KeyT: 79, // G5
+    KeyY: 81, // A5
+    KeyU: 83, // B5
+    KeyI: 84, // C6
+    KeyO: 86, // D6
+    KeyP: 88, // E6
+
+    Digit2: 73, // C#5
+    Digit3: 75, // D#5
+    Digit5: 78, // F#5
+    Digit6: 80, // G#5
+    Digit7: 82, // A#5
+    Digit9: 85, // C#6
+    Digit0: 87  // D#6
+});
+
+function isEditableTarget(el) {
+    if (!el) return false;
+    const tag = (el.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+    return !!el.isContentEditable;
+}
+
+function getHeldPitchClasses() {
+    const pcs = new Set();
+    for (const code of heldKeyboardCodes) {
+        const midi = KEYBOARD_MIDI_BY_CODE[code];
+        if (!Number.isFinite(midi)) continue;
+        pcs.add(((midi % 12) + 12) % 12);
+    }
+    return pcs;
+}
+
+function syncPressedFromKeyboard() {
+    const pcs = getHeldPitchClasses();
+    if (piano && typeof piano.setPressedPitchClasses === 'function') {
+        piano.setPressedPitchClasses([...pcs]);
+    }
+}
 
 function isSameKey(a, b) {
     if (!a || !b) return false;
@@ -105,8 +183,8 @@ function buildPctMap(noteWeights) {
     return map;
 }
 
-function buildNoteWeightsForSelection() {
-    const pcs = [...selectedPitchClasses].sort((a, b) => a - b);
+function buildNoteWeightsForPitchClasses(pitchClassesSet) {
+    const pcs = [...pitchClassesSet].sort((a, b) => a - b);
     const noteWeights = new Map();
 
     if (midiBaselineNoteWeights && midiBaselineNoteWeights.size > 0) {
@@ -140,8 +218,16 @@ function updateResetButtonState() {
     clearBtn.disabled = selectedPitchClasses.size === 0;
 }
 
-function updateOutputFromSelection() {
-    const usedNotes = [...selectedPitchClasses].sort((a, b) => a - b);
+function updateOutputFromSelection(pitchClassesOverride) {
+    const activePcs = (pitchClassesOverride instanceof Set)
+        ? new Set([...pitchClassesOverride].map(Number))
+        : (Array.isArray(pitchClassesOverride)
+            ? new Set(pitchClassesOverride.map(Number))
+            : (keyboardModeEnabled && keyboardMode === 'live')
+                ? getHeldPitchClasses()
+                : selectedPitchClasses);
+
+    const usedNotes = [...activePcs].sort((a, b) => a - b);
 
     if (usedNotes.length === 0) {
         scaleOutput.innerHTML = `
@@ -150,16 +236,22 @@ function updateOutputFromSelection() {
                 <p>Select one or more notes to see possible Major/Minor scales.</p>
             </div>
         `;
-        selectionHint.textContent = midiBaselinePitchClasses
-            ? 'Select/deselect notes to refine the MIDI.'
-            : 'Upload MIDI or start selecting notes to find a key/scale.';
+        if (keyboardModeEnabled) {
+            selectionHint.textContent = (keyboardMode === 'live')
+                ? 'Keyboard mode (Live): hold notes; scales update instantly.'
+                : 'Keyboard mode (Record): play notes to add them; Clear to start over.';
+        } else {
+            selectionHint.textContent = midiBaselinePitchClasses
+                ? 'Select/deselect notes to refine the MIDI.'
+                : 'Upload MIDI or start selecting notes to find a key/scale.';
+        }
         updateTitle(null);
         updateResetButtonState();
         updateUndoRedoButtons();
         return;
     }
 
-    const noteWeights = buildNoteWeightsForSelection();
+    const noteWeights = buildNoteWeightsForPitchClasses(activePcs);
     const weightedMatches = findMatchingScalesWeighted(usedNotes, noteWeights);
     const simpleMatches = findMatchingScalesSimple(usedNotes);
 
@@ -167,11 +259,17 @@ function updateOutputFromSelection() {
         weightedMatches.map((m, idx) => [`${m.root}-${m.name}`, idx])
     );
 
-    const candidates = (simpleMatches.length > 0)
+    let candidates = (simpleMatches.length > 0)
         ? simpleMatches
             .slice()
             .sort((a, b) => (rankByKey.get(`${a.root}-${a.name}`) ?? 999) - (rankByKey.get(`${b.root}-${b.name}`) ?? 999))
         : weightedMatches.slice(0, 12).map(m => ({ root: m.root, name: m.name, rootName: midiToNoteName(m.root) }));
+
+    // Live keyboard mode updates very frequently (keydown/keyup).
+    // Limit the list to reduce layout/scroll jitter.
+    if (keyboardModeEnabled && keyboardMode === 'live') {
+        candidates = candidates.slice(0, 10);
+    }
 
     const best = candidates[0];
 
@@ -207,9 +305,15 @@ function updateOutputFromSelection() {
         </div>
     `;
 
-    selectionHint.textContent = midiBaselinePitchClasses
-        ? 'Select/deselect notes; scales update instantly.'
-        : 'Manual mode: select notes; scales update instantly.';
+    if (keyboardModeEnabled) {
+        selectionHint.textContent = (keyboardMode === 'live')
+            ? 'Keyboard mode (Live): hold notes; release to change.'
+            : 'Keyboard mode (Record): play notes to add them; Clear to start over.';
+    } else {
+        selectionHint.textContent = midiBaselinePitchClasses
+            ? 'Select/deselect notes; scales update instantly.'
+            : 'Manual mode: select notes; scales update instantly.';
+    }
     updateTitle(bestForTitle);
     updateResetButtonState();
     updateUndoRedoButtons();
@@ -579,3 +683,92 @@ updateOutputFromSelection();
 
 // Expose Piano API globally (optional)
 window.piano = piano;
+
+function setKeyboardModeEnabled(nextEnabled) {
+    keyboardModeEnabled = !!nextEnabled;
+    if (keyboardInputMode) keyboardInputMode.disabled = !keyboardModeEnabled;
+
+    if (!keyboardModeEnabled) {
+        heldKeyboardCodes.clear();
+        syncPressedFromKeyboard();
+        updateOutputFromSelection();
+    } else {
+        syncPressedFromKeyboard();
+        updateOutputFromSelection();
+    }
+}
+
+if (keyboardInputMode) {
+    keyboardMode = keyboardInputMode.value === 'live' ? 'live' : 'record';
+}
+
+if (keyboardModeToggle) {
+    keyboardModeToggle.addEventListener('change', () => {
+        setKeyboardModeEnabled(keyboardModeToggle.checked);
+    });
+}
+
+if (keyboardInputMode) {
+    keyboardInputMode.addEventListener('change', () => {
+        keyboardMode = keyboardInputMode.value === 'live' ? 'live' : 'record';
+        updateOutputFromSelection();
+    });
+}
+
+window.addEventListener('blur', () => {
+    if (!keyboardModeEnabled) return;
+    heldKeyboardCodes.clear();
+    syncPressedFromKeyboard();
+    if (keyboardMode === 'live') updateOutputFromSelection();
+});
+
+window.addEventListener('keydown', (e) => {
+    if (!keyboardModeEnabled) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isEditableTarget(e.target)) return;
+
+    const midi = KEYBOARD_MIDI_BY_CODE[e.code];
+    if (!Number.isFinite(midi)) return;
+    if (e.repeat) {
+        e.preventDefault();
+        return;
+    }
+
+    e.preventDefault();
+
+    heldKeyboardCodes.add(e.code);
+    syncPressedFromKeyboard();
+
+    lastAppliedScale = null;
+    if (piano && typeof piano.playMidiNote === 'function') {
+        piano.playMidiNote(midi, 0.95);
+    }
+
+    const pc = ((midi % 12) + 12) % 12;
+    if (keyboardMode === 'record') {
+        if (!selectedPitchClasses.has(pc)) {
+            const next = new Set(selectedPitchClasses);
+            next.add(pc);
+            applySelection([...next], { silent: true, recordHistory: true });
+        }
+    } else {
+        updateOutputFromSelection(getHeldPitchClasses());
+    }
+});
+
+window.addEventListener('keyup', (e) => {
+    if (!keyboardModeEnabled) return;
+    if (isEditableTarget(e.target)) return;
+
+    const midi = KEYBOARD_MIDI_BY_CODE[e.code];
+    if (!Number.isFinite(midi)) return;
+
+    e.preventDefault();
+
+    heldKeyboardCodes.delete(e.code);
+    syncPressedFromKeyboard();
+
+    if (keyboardMode === 'live') {
+        updateOutputFromSelection(getHeldPitchClasses());
+    }
+});

@@ -106,6 +106,47 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
 .app-controls {
     display: flex;
     gap: 10px;
+    flex-wrap: wrap;
+}
+
+.keyboard-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.kb-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.kb-toggle input {
+    cursor: pointer;
+}
+
+.kb-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.kb-select-label {
+    color: var(--muted);
+    font-size: 0.95em;
+}
+
+.kb-select select {
+    font-family: inherit;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
 }
 
 .app-subtext {
@@ -197,6 +238,18 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
     color: #fff;
     border-color: var(--accent);
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.vpiano-key.pressed:not(.selected) {
+    border-color: var(--accent);
+    background: var(--bg);
+}
+
+.vpiano-black-key.pressed:not(.selected) {
+    background: #1d1d1d;
+    color: #fff;
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
 .vpiano-black-key.selected {

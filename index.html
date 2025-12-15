@@ -29,6 +29,19 @@
                         <button id="undoBtn" type="button" disabled>Undo</button>
                         <button id="redoBtn" type="button" disabled>Redo</button>
                     </div>
+                    <div class="keyboard-controls" aria-label="Keyboard piano mode">
+                        <label class="kb-toggle">
+                            <input id="keyboardModeToggle" type="checkbox" />
+                            <span>Keyboard mode</span>
+                        </label>
+                        <label class="kb-select">
+                            <span class="kb-select-label">Input</span>
+                            <select id="keyboardInputMode" disabled aria-label="Keyboard input mode">
+                                <option value="record" selected>Record (accumulate)</option>
+                                <option value="live">Live (held)</option>
+                            </select>
+                        </label>
+                    </div>
                     <div class="app-subtext" id="selectionHint">Select notes to see possible scales.</div>
                 </section>
                 <section class="app-right" aria-label="Scale results">
@@ -44,6 +57,7 @@
             <p>A <strong>scale</strong> is a set of notes (like A natural minor). A <strong>key</strong> usually means a scale <em>plus</em> a “home” note (the tonic) and a musical context. This tool lists Major/Minor <strong>keys</strong> (tonic + mode) that best fit your selected notes.</p>
             <h2>How results are shown</h2>
             <p>First you’ll see possible Major/Minor scales for the detected notes, ranked with the best guess highlighted. Open the “Why the best guess?” dropdown to see a simple explanation. Below that, you’ll see which notes were found in the MIDI and roughly how much of the song each note takes up.</p>
+            <p><strong>What does “emphasis” mean?</strong> In this app, “emphasis” means which notes are used the most (based on MIDI note durations, or your current selection). If multiple keys are an identical match (for example several are 100% match because they contain the same notes), the sorting uses a tie-break that favors keys where the <em>tonic</em> (home note), the <em>3rd</em>, and the <em>5th</em> are more emphasized. This is a heuristic to pick the most likely key from many equally-valid candidates.</p>
             <h2>What does "tonic" mean?</h2>
             <p>The tonic is the "home" note—the pitch everything feels drawn back to. Knowing the tonic tells you the song's key, so you know which chords and melodies fit naturally.</p>
         </section>
