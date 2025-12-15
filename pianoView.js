@@ -40,14 +40,54 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
 
     let audioContext = null;
     let shaperCurve = null;
+    let audioUnlocked = false;
 
     let previewToken = 0;
+    const previewTimeouts = new Set();
+
+    function cancelPreviews() {
+        previewToken++;
+        for (const id of previewTimeouts) {
+            window.clearTimeout(id);
+        }
+        previewTimeouts.clear();
+    }
+
+    function stopAllAudio() {
+        cancelPreviews();
+
+        if (audioContext) {
+            try {
+                audioContext.close();
+            } catch {
+                // ignore
+            }
+        }
+        audioContext = null;
+        shaperCurve = null;
+        audioUnlocked = false;
+    }
+
+    function schedulePreview(fn, delayMs) {
+        const id = window.setTimeout(() => {
+            previewTimeouts.delete(id);
+            fn();
+        }, delayMs);
+        previewTimeouts.add(id);
+        return id;
+    }
 
     function ensureAudioContext() {
+        // WebAudio autoplay policy: only create/resume audio from a user gesture.
+        // Also avoid work while hidden to prevent delayed "bursts" on restore.
+        if (!audioUnlocked) return;
+        if (typeof document !== 'undefined' && document.hidden) return;
+
         if (!audioContext) {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
         }
         if (audioContext.state === 'suspended') {
+            // If resume is blocked, we keep the context suspended and avoid starting voices.
             audioContext.resume().catch(() => {});
         }
 
@@ -62,10 +102,21 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         }
     }
 
+    function isAudioRunning() {
+        return !!(audioContext && audioContext.state === 'running');
+    }
+
+    function unlockAudioFromGesture() {
+        audioUnlocked = true;
+        ensureAudioContext();
+        return isAudioRunning();
+    }
+
     function playVoice({ freq, pc, velocity = 1 }) {
         try {
+            if (typeof document !== 'undefined' && document.hidden) return;
             ensureAudioContext();
-            if (!audioContext) return;
+            if (!audioContext || audioContext.state !== 'running') return;
 
             const now = audioContext.currentTime;
             const safeFreq = typeof freq === 'number' && Number.isFinite(freq) ? freq : C4_HZ;
@@ -173,12 +224,15 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
     }
 
     function previewPitchClasses(pcs, { velocity = 0.85, intervalMs = 190 } = {}) {
+        ensureAudioContext();
+        if (!isAudioRunning()) return;
+        cancelPreviews();
         const token = ++previewToken;
         const ordered = [...new Set((pcs || []).map(Number))].sort((a, b) => a - b);
         if (ordered.length === 0) return;
 
         ordered.forEach((pc, idx) => {
-            window.setTimeout(() => {
+            schedulePreview(() => {
                 if (token !== previewToken) return;
                 playPc(pc, velocity);
             }, idx * intervalMs);
@@ -189,9 +243,11 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         velocity = 0.85,
         intervalMs = 190,
         endPauseMs = 140,
-        endVelocity = 1,
-        endReHitMs = 220
+        endVelocity = 1
     } = {}) {
+        ensureAudioContext();
+        if (!isAudioRunning()) return;
+        cancelPreviews();
         const token = ++previewToken;
         const seq = (sequence || []).map(Number).filter((v) => Number.isFinite(v));
         if (seq.length === 0) return;
@@ -201,7 +257,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
             const isLast = idx === seq.length - 1;
             const v = isLast ? endVelocity : velocity;
 
-            window.setTimeout(() => {
+            schedulePreview(() => {
                 if (token !== previewToken) return;
                 playPc(pc, v);
             }, t);
@@ -219,6 +275,9 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         endPauseMs = 160,
         endVelocity = 1
     } = {}) {
+        ensureAudioContext();
+        if (!isAudioRunning()) return;
+        cancelPreviews();
         const token = ++previewToken;
         const seq = (sequence || []).map(Number).filter((v) => Number.isFinite(v));
         if (seq.length === 0) return;
@@ -228,7 +287,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
             const isLast = idx === seq.length - 1;
             const v = isLast ? endVelocity : velocity;
 
-            window.setTimeout(() => {
+            schedulePreview(() => {
                 if (token !== previewToken) return;
                 playMidiNote(midi, v);
             }, t);
@@ -262,8 +321,15 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
                     <div class="vpiano-pct"></div>
                 </div>
             `;
-            key.addEventListener('mouseenter', () => playPc(pc, 0.8));
-            key.addEventListener('click', () => togglePc(pc, { play: true }));
+            key.addEventListener('mouseenter', () => {
+                // Hover should never attempt to unlock audio (autoplay policy).
+                if (!isAudioRunning()) return;
+                playPc(pc, 0.8);
+            });
+            key.addEventListener('click', () => {
+                unlockAudioFromGesture();
+                togglePc(pc, { play: true });
+            });
             key.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 deselectPc(pc);
@@ -288,9 +354,13 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
                     <div class="vpiano-pct"></div>
                 </div>
             `;
-            key.addEventListener('mouseenter', () => playPc(pc, 0.8));
+            key.addEventListener('mouseenter', () => {
+                if (!isAudioRunning()) return;
+                playPc(pc, 0.8);
+            });
             key.addEventListener('click', (e) => {
                 e.stopPropagation();
+                unlockAudioFromGesture();
                 togglePc(pc, { play: true });
             });
             key.addEventListener('contextmenu', (e) => {
@@ -420,9 +490,11 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
                 .filter((pc) => pc >= 0);
             setSelectedPitchClasses(pcs, { silent: false });
         },
-        previewPitchClasses
-        ,
+        previewPitchClasses,
         previewPitchClassSequence,
-        previewMidiSequence
+        previewMidiSequence,
+        cancelPreviews,
+        stopAllAudio,
+        unlockAudioFromGesture
     };
 }

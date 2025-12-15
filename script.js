@@ -243,13 +243,16 @@ function updateResetButtonState() {
 }
 
 function updateOutputFromSelection(pitchClassesOverride) {
-    const activePcs = (pitchClassesOverride instanceof Set)
-        ? new Set([...pitchClassesOverride].map(Number))
-        : (Array.isArray(pitchClassesOverride)
-            ? new Set(pitchClassesOverride.map(Number))
-            : (keyboardModeEnabled && keyboardMode === 'live')
-                ? getHeldPitchClasses()
-                : selectedPitchClasses);
+    let activePcs;
+    if (pitchClassesOverride instanceof Set) {
+        activePcs = new Set([...pitchClassesOverride].map(Number));
+    } else if (Array.isArray(pitchClassesOverride)) {
+        activePcs = new Set(pitchClassesOverride.map(Number));
+    } else if (keyboardModeEnabled && keyboardMode === 'live') {
+        activePcs = getHeldPitchClasses();
+    } else {
+        activePcs = selectedPitchClasses;
+    }
 
     const usedNotes = [...activePcs].sort((a, b) => a - b);
 
@@ -515,17 +518,17 @@ scaleOutput.addEventListener('contextmenu', (e) => {
     if (!Number.isFinite(root) || !mode) return;
 
     const midiSeq = buildScalePreviewMidiSequence(root, mode);
-    if (window.piano && typeof window.piano.previewMidiSequence === 'function') {
-        window.piano.previewMidiSequence(midiSeq, { velocity: 0.85, intervalMs: 190, endPauseMs: 160, endVelocity: 1 });
+    if (piano && typeof piano.previewMidiSequence === 'function') {
+        piano.previewMidiSequence(midiSeq, { velocity: 0.85, intervalMs: 190, endPauseMs: 160, endVelocity: 1 });
         return;
     }
 
     // Fallback (should be rare): play pitch-classes as-is.
     const pcs = getScalePitchClasses(root, mode);
-    if (window.piano && typeof window.piano.previewPitchClassSequence === 'function') {
-        window.piano.previewPitchClassSequence(pcs, { velocity: 0.85, intervalMs: 190 });
-    } else if (window.piano && typeof window.piano.previewPitchClasses === 'function') {
-        window.piano.previewPitchClasses(pcs, { velocity: 0.85, intervalMs: 190 });
+    if (piano && typeof piano.previewPitchClassSequence === 'function') {
+        piano.previewPitchClassSequence(pcs, { velocity: 0.85, intervalMs: 190 });
+    } else if (piano && typeof piano.previewPitchClasses === 'function') {
+        piano.previewPitchClasses(pcs, { velocity: 0.85, intervalMs: 190 });
     }
 });
 
@@ -849,8 +852,30 @@ function buildNotesFoundSection(usedNotes, noteWeights) {
 // Initialize UI on first load (manual mode)
 updateOutputFromSelection();
 
-// Expose Piano API globally (optional)
-window.piano = piano;
+function cleanupTransientInputState() {
+    // BFCache/tab restore can skip keyup events and keep JS state alive.
+    // Reset transient held/pressed state and stop any queued previews/audio.
+    heldKeyboardCodes.clear();
+    if (piano && typeof piano.setPressedPitchClasses === 'function') {
+        piano.setPressedPitchClasses([]);
+    }
+    if (piano && typeof piano.stopAllAudio === 'function') {
+        piano.stopAllAudio();
+    } else if (piano && typeof piano.cancelPreviews === 'function') {
+        piano.cancelPreviews();
+    }
+    if (keyboardModeEnabled && keyboardMode === 'live') {
+        updateOutputFromSelection();
+    }
+}
+
+window.addEventListener('pagehide', cleanupTransientInputState);
+window.addEventListener('pageshow', (e) => {
+    if (e && e.persisted) cleanupTransientInputState();
+});
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) cleanupTransientInputState();
+});
 
 function setKeyboardModeEnabled(nextEnabled) {
     keyboardModeEnabled = !!nextEnabled;
