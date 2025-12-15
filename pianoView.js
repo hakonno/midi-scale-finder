@@ -185,6 +185,61 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         });
     }
 
+    function previewPitchClassSequence(sequence, {
+        velocity = 0.85,
+        intervalMs = 190,
+        endPauseMs = 140,
+        endVelocity = 1,
+        endReHitMs = 220
+    } = {}) {
+        const token = ++previewToken;
+        const seq = (sequence || []).map(Number).filter((v) => Number.isFinite(v));
+        if (seq.length === 0) return;
+
+        let t = 0;
+        seq.forEach((pc, idx) => {
+            const isLast = idx === seq.length - 1;
+            const v = isLast ? endVelocity : velocity;
+
+            window.setTimeout(() => {
+                if (token !== previewToken) return;
+                playPc(pc, v);
+            }, t);
+
+            t += intervalMs;
+            if (!isLast && idx === seq.length - 2) {
+                t += endPauseMs;
+            }
+        });
+    }
+
+    function previewMidiSequence(sequence, {
+        velocity = 0.85,
+        intervalMs = 190,
+        endPauseMs = 160,
+        endVelocity = 1
+    } = {}) {
+        const token = ++previewToken;
+        const seq = (sequence || []).map(Number).filter((v) => Number.isFinite(v));
+        if (seq.length === 0) return;
+
+        let t = 0;
+        seq.forEach((midi, idx) => {
+            const isLast = idx === seq.length - 1;
+            const v = isLast ? endVelocity : velocity;
+
+            window.setTimeout(() => {
+                if (token !== previewToken) return;
+                playMidiNote(midi, v);
+            }, t);
+
+            t += intervalMs;
+            if (!isLast && idx === seq.length - 2) {
+                t += endPauseMs;
+            }
+        });
+    }
+
     function render() {
         mountEl.innerHTML = `
             <div class="vpiano" style="--white-h:${WHITE_KEY_HEIGHT}px; --white-gap:${WHITE_KEY_GAP}px; --black-h:${BLACK_KEY_HEIGHT}px;">
@@ -366,5 +421,8 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
             setSelectedPitchClasses(pcs, { silent: false });
         },
         previewPitchClasses
+        ,
+        previewPitchClassSequence,
+        previewMidiSequence
     };
 }

@@ -82,6 +82,9 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
     overflow: auto;
     min-height: 120px;
     margin-bottom: 18px;
+    --scale-row-h: 62px;
+    --scale-row-gap: 12px;
+    --scales-fixed-h: calc((7.6 * var(--scale-row-h)));;
 }
 
 .app-layout {
@@ -308,10 +311,71 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
 .scale-list {
     list-style: none;
     padding: 0;
-    margin: 0 0 24px 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    margin: 0;
+    display: flex;
+    flex-direction: column;
     gap: 12px;
+}
+
+.scale-list-wrap {
+    width: 100%;
+}
+
+.scale-list-wrap--fixed {
+    height: var(--scales-fixed-h);
+    overflow: hidden;
+    padding-right: 2px;
+    border-radius: 10px;
+}
+
+.scale-list-wrap--scroll {
+    overflow: auto;
+}
+
+
+.scale-list--onecol .scale-item-btn {
+    min-height: var(--scale-row-h);
+}
+
+.scale-list--compact {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.scale-item--compact {
+    border-radius: 10px;
+}
+
+.scale-item-btn--compact {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+}
+
+.scale-compact-name {
+    font-weight: 700;
+    color: var(--text);
+}
+
+.scale-compact-meta {
+    color: var(--muted);
+    font-size: 0.95em;
+    white-space: nowrap;
+}
+
+.scale-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.scale-toggle-btn {
+    padding: 8px 12px;
+    white-space: nowrap;
 }
 
 .scale-item {

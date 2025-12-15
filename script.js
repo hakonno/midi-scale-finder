@@ -16,6 +16,7 @@ const scaleOutput = document.getElementById("scaleOutput");
 const scaleTitle = document.getElementById("scaleTitle");
 const clearBtn = document.getElementById('clearBtn');
 const resetToMidiBtn = document.getElementById('resetToMidiBtn');
+const resetAllBtn = document.getElementById('resetAllBtn');
 const undoBtn = document.getElementById('undoBtn');
 const redoBtn = document.getElementById('redoBtn');
 const selectionHint = document.getElementById('selectionHint');
@@ -40,6 +41,21 @@ let lastAppliedScale = null; // { root:number, mode:string } | null
 let keyboardModeEnabled = false;
 let keyboardMode = 'record'; // 'record' | 'live'
 const heldKeyboardCodes = new Set();
+let showAllScales = false;
+
+const SCALE_INTERVALS = {
+    Major: [0, 2, 4, 5, 7, 9, 11, 12],
+    Minor: [0, 2, 3, 5, 7, 8, 10, 12]
+};
+
+function buildScalePreviewMidiSequence(root, mode) {
+    const intervals = SCALE_INTERVALS[mode];
+    if (!intervals) return [];
+    const rootPc = ((Number(root) % 12) + 12) % 12;
+    // Start around C4 (60) and go up one octave, ending on tonic again.
+    const baseMidi = 60 + rootPc;
+    return intervals.map((i) => baseMidi + i);
+}
 
 // Map physical key positions (event.code) to MIDI note numbers.
 // Layout-agnostic: uses `event.code` (physical key), not `event.key` (label).
@@ -109,6 +125,10 @@ function syncPressedFromKeyboard() {
     if (piano && typeof piano.setPressedPitchClasses === 'function') {
         piano.setPressedPitchClasses([...pcs]);
     }
+}
+
+function hasMidiEmphasisData() {
+    return !!(midiBaselineNoteWeights && midiBaselineNoteWeights.size > 0);
 }
 
 function isSameKey(a, b) {
@@ -216,6 +236,10 @@ function updateResetButtonState() {
     const hasBaseline = !!(midiBaselinePitchClasses && midiBaselinePitchClasses.size > 0);
     resetToMidiBtn.disabled = !hasBaseline;
     clearBtn.disabled = selectedPitchClasses.size === 0;
+
+    const hasFileLabel = fileName && !fileName.classList.contains('hidden') && (fileName.textContent || '').trim().length > 0;
+    const hasAnyState = hasBaseline || selectedPitchClasses.size > 0 || hasFileLabel;
+    if (resetAllBtn) resetAllBtn.disabled = !hasAnyState;
 }
 
 function updateOutputFromSelection(pitchClassesOverride) {
@@ -252,6 +276,7 @@ function updateOutputFromSelection(pitchClassesOverride) {
     }
 
     const noteWeights = buildNoteWeightsForPitchClasses(activePcs);
+    const showEmphasis = hasMidiEmphasisData();
     const weightedMatches = findMatchingScalesWeighted(usedNotes, noteWeights);
     const simpleMatches = findMatchingScalesSimple(usedNotes);
 
@@ -259,17 +284,28 @@ function updateOutputFromSelection(pitchClassesOverride) {
         weightedMatches.map((m, idx) => [`${m.root}-${m.name}`, idx])
     );
 
-    let candidates = (simpleMatches.length > 0)
-        ? simpleMatches
-            .slice()
-            .sort((a, b) => (rankByKey.get(`${a.root}-${a.name}`) ?? 999) - (rankByKey.get(`${b.root}-${b.name}`) ?? 999))
-        : weightedMatches.slice(0, 12).map(m => ({ root: m.root, name: m.name, rootName: midiToNoteName(m.root) }));
-
-    // Live keyboard mode updates very frequently (keydown/keyup).
-    // Limit the list to reduce layout/scroll jitter.
-    if (keyboardModeEnabled && keyboardMode === 'live') {
-        candidates = candidates.slice(0, 10);
+    let fullCandidates;
+    if (simpleMatches.length > 0) {
+        fullCandidates = simpleMatches.slice();
+        if (showEmphasis) {
+            fullCandidates.sort((a, b) => (rankByKey.get(`${a.root}-${a.name}`) ?? 999) - (rankByKey.get(`${b.root}-${b.name}`) ?? 999));
+        } else {
+            // No MIDI weighting available: keep ordering stable and neutral.
+            fullCandidates.sort((a, b) => {
+                if (a.root !== b.root) return a.root - b.root;
+                return String(a.name).localeCompare(String(b.name));
+            });
+        }
+    } else {
+        fullCandidates = weightedMatches.slice(0, 12).map(m => ({ root: m.root, name: m.name, rootName: midiToNoteName(m.root) }));
     }
+
+    const totalCandidates = fullCandidates.length;
+    const isLive = keyboardModeEnabled && keyboardMode === 'live';
+    const isScrollEnabled = !!showAllScales;
+
+    // Keep the full candidate list; the UI reserves a fixed area and hides overflow.
+    const candidates = fullCandidates;
 
     const best = candidates[0];
 
@@ -282,20 +318,31 @@ function updateOutputFromSelection(pitchClassesOverride) {
     let headerText;
     if (lastAppliedScale) {
         const selectedLabel = `${midiToNoteName(lastAppliedScale.root)} ${lastAppliedScale.mode}`;
-        const alts = candidates
-            .filter(c => !(c.root === lastAppliedScale.root && c.name === lastAppliedScale.mode))
-            .slice(0, 3)
-            .map(c => `${midiToNoteName(c.root)} ${c.name}`);
-        const also = alts.length ? alts.join(', ') : '—';
-        headerText = `Selected key: ${selectedLabel} · Similar: ${also}`;
+        headerText = `Selected key: ${selectedLabel}`;
     } else {
-        headerText = (simpleMatches.length > 0)
-            ? `Possible keys (contain all selected notes): (${candidates.length})`
-            : `Closest Major/Minor keys: (${candidates.length})`;
+        if (isLive) {
+            headerText = `Possible keys (held notes): (${totalCandidates})`;
+        } else {
+            headerText = (simpleMatches.length > 0)
+                ? `Possible keys (contain all selected notes): (${candidates.length})`
+                : `Closest Major/Minor keys: (${candidates.length})`;
+        }
     }
 
-    const scalesHtml = buildPossibleScalesSection(candidates, best, noteWeights, weightedMatches);
-    const whyHtml = lastAppliedScale ? '' : buildWhyDetails(best, noteWeights);
+    const scalesHtml = buildPossibleScalesSection(
+        candidates,
+        best,
+        noteWeights,
+        weightedMatches,
+        {
+            showEmphasis,
+            isLive,
+            totalCandidates,
+            showAllEnabled: showAllScales,
+            isScrollEnabled
+        }
+    );
+    const whyHtml = (lastAppliedScale || !showEmphasis) ? '' : buildWhyDetails(best, noteWeights);
 
     scaleOutput.innerHTML = `
         <div class="result-block">
@@ -314,7 +361,11 @@ function updateOutputFromSelection(pitchClassesOverride) {
             ? 'Select/deselect notes; scales update instantly.'
             : 'Manual mode: select notes; scales update instantly.';
     }
-    updateTitle(bestForTitle);
+    if (showEmphasis || lastAppliedScale) {
+        updateTitle(bestForTitle);
+    } else {
+        updateTitle(null);
+    }
     updateResetButtonState();
     updateUndoRedoButtons();
 }
@@ -349,6 +400,8 @@ function processFile(file) {
             piano.setMidiPercentages(midiPctByPc);
             piano.setSelectedPitchClasses(usedNotes, { silent: true });
             selectedPitchClasses = new Set(usedNotes);
+
+            showAllScales = false;
             updateOutputFromSelection();
         });
     }
@@ -360,14 +413,53 @@ function processFile(file) {
     reader.readAsArrayBuffer(file);
 }
 
+resetAllBtn?.addEventListener('click', () => {
+    // Full reset: forget the uploaded MIDI and return to a clean manual state.
+    midiBaselineNoteWeights = null;
+    midiBaselinePitchClasses = null;
+    midiPctByPc = null;
+    lastAppliedScale = null;
+    showAllScales = false;
+
+    if (fileName) {
+        fileName.textContent = '';
+        hide(fileName);
+    }
+    if (fileInput) {
+        // Allow selecting the same file again.
+        fileInput.value = '';
+    }
+
+    if (piano && typeof piano.clearMidiPercentages === 'function') {
+        piano.clearMidiPercentages();
+    }
+    if (piano && typeof piano.setPressedPitchClasses === 'function') {
+        piano.setPressedPitchClasses([]);
+    }
+
+    selectedPitchClasses = new Set();
+    piano.setSelectedPitchClasses([], { silent: true });
+
+    // Reset history to a single empty state.
+    suppressHistory = true;
+    history = [];
+    historyIndex = -1;
+    suppressHistory = false;
+    pushHistory(new Set());
+
+    updateOutputFromSelection();
+});
+
 clearBtn.addEventListener('click', () => {
     lastAppliedScale = null;
+    showAllScales = false;
     applySelection([], { silent: true, recordHistory: true });
 });
 
 resetToMidiBtn.addEventListener('click', () => {
     if (!midiBaselinePitchClasses || midiBaselinePitchClasses.size === 0) return;
     lastAppliedScale = null;
+    showAllScales = false;
     applySelection([...midiBaselinePitchClasses], { silent: true, recordHistory: true });
 });
 
@@ -393,6 +485,13 @@ redoBtn.addEventListener('click', () => {
 
 // Clickable scales: apply scale pitch-classes to selection
 scaleOutput.addEventListener('click', (e) => {
+    const toggleBtn = e.target.closest('[data-action="toggle-show-all-scales"]');
+    if (toggleBtn) {
+        showAllScales = !showAllScales;
+        updateOutputFromSelection();
+        return;
+    }
+
     const btn = e.target.closest('[data-scale-root][data-scale-mode]');
     if (!btn) return;
     const root = Number(btn.dataset.scaleRoot);
@@ -401,6 +500,7 @@ scaleOutput.addEventListener('click', (e) => {
 
     const pcs = getScalePitchClasses(root, mode);
     lastAppliedScale = { root, mode };
+    showAllScales = false;
     applySelection(pcs, { silent: true, recordHistory: true });
 });
 
@@ -414,9 +514,18 @@ scaleOutput.addEventListener('contextmenu', (e) => {
     const mode = btn.dataset.scaleMode;
     if (!Number.isFinite(root) || !mode) return;
 
+    const midiSeq = buildScalePreviewMidiSequence(root, mode);
+    if (window.piano && typeof window.piano.previewMidiSequence === 'function') {
+        window.piano.previewMidiSequence(midiSeq, { velocity: 0.85, intervalMs: 190, endPauseMs: 160, endVelocity: 1 });
+        return;
+    }
+
+    // Fallback (should be rare): play pitch-classes as-is.
     const pcs = getScalePitchClasses(root, mode);
-    if (window.piano && typeof window.piano.previewPitchClasses === 'function') {
-        window.piano.previewPitchClasses(pcs, { velocity: 0.85 });
+    if (window.piano && typeof window.piano.previewPitchClassSequence === 'function') {
+        window.piano.previewPitchClassSequence(pcs, { velocity: 0.85, intervalMs: 190 });
+    } else if (window.piano && typeof window.piano.previewPitchClasses === 'function') {
+        window.piano.previewPitchClasses(pcs, { velocity: 0.85, intervalMs: 190 });
     }
 });
 
@@ -542,10 +651,18 @@ function computeScaleCoveragePct(root, mode, noteWeights) {
     return { inPct, outPct };
 }
 
-function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatches) {
+function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatches, options = {}) {
     const rankByKey = new Map(
         (weightedMatches || []).map((m, idx) => [`${m.root}-${m.name}`, idx])
     );
+
+    const {
+        showEmphasis = true,
+        isLive = false,
+        totalCandidates = candidates.length,
+        showAllEnabled = false,
+        isScrollEnabled = false
+    } = options;
 
     const selectedKey = lastAppliedScale ? { root: lastAppliedScale.root, name: lastAppliedScale.mode } : null;
     const enriched = candidates.map(m => {
@@ -565,13 +682,42 @@ function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatch
 
     const perfectCount = enriched.filter(m => m.inPct === 100).length;
 
+    const rel = (lastAppliedScale)
+        ? {
+            root: lastAppliedScale.mode === 'Major'
+                ? (lastAppliedScale.root + 9) % 12
+                : (lastAppliedScale.root + 3) % 12,
+            mode: lastAppliedScale.mode === 'Major' ? 'Minor' : 'Major'
+        }
+        : null;
+
     const items = enriched.map(m => {
         const label = `${midiToNoteName(m.root)} ${m.name}`;
-        const showEmphasisRank = perfectCount > 1 && m.inPct === 100 && m.weightedRank < 999;
+        const isRelative = !!(rel && m.root === rel.root && m.name === rel.mode);
+
+        if (!showEmphasis) {
+            const metaText = m.isSelected ? 'Selected'
+                : (isRelative ? 'Relative key'
+                    : `${m.inPct}% match`);
+
+            return `
+                <li class="scale-item scale-item--compact${m.isBest ? " best" : ""}">
+                    <button type="button" class="scale-item-btn scale-item-btn--compact" data-scale-root="${m.root}" data-scale-mode="${m.name}" aria-label="Select ${label}">
+                        <span class="scale-compact-name">${label}</span>
+                        <span class="scale-compact-meta">${metaText}</span>
+                    </button>
+                </li>
+            `;
+        }
+
+        const showEmphasisRank = showEmphasis && perfectCount > 1 && m.inPct === 100 && m.weightedRank < 999;
         const emphasis = showEmphasisRank ? ` · emphasis #${m.weightedRank + 1}` : '';
-        const meta = (m.outPct > 0)
-            ? `${m.inPct}% match · ${m.outPct}% outside${emphasis}`
-            : `${m.inPct}% match${emphasis}`;
+
+        const meta = m.isSelected ? 'Selected'
+            : (isRelative ? 'Relative key'
+                : ((m.outPct > 0)
+                    ? `${m.inPct}% match · ${m.outPct}% outside${emphasis}`
+                    : `${m.inPct}% match${emphasis}`));
 
         const tag = m.isSelected
             ? '<span class="scale-tag">Selected</span>'
@@ -592,9 +738,31 @@ function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatch
         `;
     }).join("");
 
-    const tip = `<div class="hint-text">Tip: Right-click a key for preview.</div>`;
+    const shouldShowToggle = totalCandidates > 10;
+    const toggleBtn = shouldShowToggle
+        ? `<button type="button" class="scale-toggle-btn" data-action="toggle-show-all-scales" aria-pressed="${showAllEnabled ? 'true' : 'false'}">
+                ${showAllEnabled ? 'Hide' : `Show all (${totalCandidates})`}
+           </button>`
+        : '';
 
-    return `<ul class="scale-list">${items}</ul>${tip}`;
+    const fixedWrapClass = `scale-list-wrap scale-list-wrap--fixed${showAllEnabled ? ' scale-list-wrap--scroll' : ''}`;
+    const fixedListClass = !showEmphasis
+        ? 'scale-list scale-list--compact'
+        : 'scale-list scale-list--onecol';
+
+    const footer = `
+        <div class="hint-text scale-footer">
+            <span>Tip: Right-click a key for preview.</span>
+            ${toggleBtn}
+        </div>
+    `;
+
+    return `
+        <div class="${fixedWrapClass}">
+            <ul class="${fixedListClass}">${items}</ul>
+        </div>
+        ${footer}
+    `;
 }
 
 function buildWhyDetails(best, noteWeights) {
@@ -687,6 +855,8 @@ window.piano = piano;
 function setKeyboardModeEnabled(nextEnabled) {
     keyboardModeEnabled = !!nextEnabled;
     if (keyboardInputMode) keyboardInputMode.disabled = !keyboardModeEnabled;
+
+    // Do not force showAllScales off here; it's a page-wide preference.
 
     if (!keyboardModeEnabled) {
         heldKeyboardCodes.clear();
