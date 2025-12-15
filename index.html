@@ -26,6 +26,7 @@
                     <div class="app-controls">
                         <button id="clearBtn" type="button" disabled>Clear</button>
                         <button id="resetToMidiBtn" type="button" disabled>Reset to MIDI</button>
+                        <button id="resetAllBtn" type="button" disabled>Reset</button>
                         <button id="undoBtn" type="button" disabled>Undo</button>
                         <button id="redoBtn" type="button" disabled>Redo</button>
                     </div>
@@ -57,7 +58,12 @@
             <p>A <strong>scale</strong> is a set of notes (like A natural minor). A <strong>key</strong> usually means a scale <em>plus</em> a “home” note (the tonic) and a musical context. This tool lists Major/Minor <strong>keys</strong> (tonic + mode) that best fit your selected notes.</p>
             <h2>How results are shown</h2>
             <p>First you’ll see possible Major/Minor scales for the detected notes, ranked with the best guess highlighted. Open the “Why the best guess?” dropdown to see a simple explanation. Below that, you’ll see which notes were found in the MIDI and roughly how much of the song each note takes up.</p>
-            <p><strong>What does “emphasis” mean?</strong> In this app, “emphasis” means which notes are used the most (based on MIDI note durations, or your current selection). If multiple keys are an identical match (for example several are 100% match because they contain the same notes), the sorting uses a tie-break that favors keys where the <em>tonic</em> (home note), the <em>3rd</em>, and the <em>5th</em> are more emphasized. This is a heuristic to pick the most likely key from many equally-valid candidates.</p>
+            <h2>What is “emphasis”?</h2>
+            <p>In this app, “emphasis” means which notes show up the most in the MIDI file. If several keys match equally well, the list order uses this as a tie-break: the tool prefers keys where the “home” note and other important notes show up more often. (This only applies when a MIDI file is uploaded.)</p>
+            <h2>Keyboard mode</h2>
+            <p>Keyboard mode lets you play notes using your computer keyboard (with sound). It maps keys by physical key position (so it works across different keyboard layouts).</p>
+            <h2>Keyboard input modes</h2>
+            <p><strong>Record (accumulate)</strong> adds notes you play to your selection, so you can build a note set. <strong>Live (held)</strong> shows scales based on the notes you are holding down right now.</p>
             <h2>What does "tonic" mean?</h2>
             <p>The tonic is the "home" note—the pitch everything feels drawn back to. Knowing the tonic tells you the song's key, so you know which chords and melodies fit naturally.</p>
         </section>
