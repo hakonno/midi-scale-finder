@@ -126,13 +126,11 @@ function buildResultsLayout(usedNotes, noteWeights, weightedMatches) {
         ? `Possible scales (contain all detected notes): (${candidates.length})`
         : `Closest Major/Minor matches: (${candidates.length})`;
 
-    const scalesHtml = buildPossibleScalesSection(candidates, best, noteWeights);
+    const scalesHtml = buildPossibleScalesSection(candidates, best, noteWeights, weightedMatches);
     const whyHtml = buildWhyDetails(best, noteWeights);
     const notesHtml = buildNotesFoundSection(usedNotes, noteWeights);
 
-    const hintHtml = (simpleMatches.length > 1)
-        ? `<div class="hint-text">Many scales can contain the same notes. The highlighted one is the best guess based on which notes are emphasized.</div>`
-        : "";
+    const hintHtml = buildHintText(simpleMatches.length, candidates, best, noteWeights);
 
     return `
         <div class="result-block">
@@ -145,6 +143,24 @@ function buildResultsLayout(usedNotes, noteWeights, weightedMatches) {
             ${hintHtml}
         </div>
     `;
+}
+
+function buildHintText(simpleMatchCount, candidates, best, noteWeights) {
+    if (simpleMatchCount <= 1) return "";
+
+    const enriched = candidates.map(c => {
+        const { inPct } = computeScaleCoveragePct(c.root, c.name, noteWeights);
+        return { ...c, inPct };
+    });
+
+    const bestInPct = enriched.find(m => m.root === best.root && m.name === best.name)?.inPct ?? 0;
+    const maxInPct = Math.max(...enriched.map(m => m.inPct));
+
+    const extra = (bestInPct < maxInPct)
+        ? " Match% just means notes are inside the scale. Best guess also looks at which notes are emphasized."
+        : "";
+
+    return `<div class="hint-text">Many scales can contain the same notes. The one tagged “Best guess” uses which notes are emphasized in the MIDI.${extra}</div>`;
 }
 
 function sumWeights(noteWeights) {
@@ -167,20 +183,36 @@ function computeScaleCoveragePct(root, mode, noteWeights) {
     return { inPct, outPct };
 }
 
-function buildPossibleScalesSection(candidates, best, noteWeights) {
-    const items = candidates.map(m => {
+function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatches) {
+    const rankByKey = new Map(
+        (weightedMatches || []).map((m, idx) => [`${m.root}-${m.name}`, idx])
+    );
+
+    const enriched = candidates.map(m => {
         const isBest = m.root === best.root && m.name === best.name;
         const { inPct, outPct } = computeScaleCoveragePct(m.root, m.name, noteWeights);
+        const weightedRank = rankByKey.get(`${m.root}-${m.name}`) ?? 999;
+        return { ...m, isBest, inPct, outPct, weightedRank };
+    });
+
+    enriched.sort((a, b) => {
+        if (a.isBest !== b.isBest) return a.isBest ? -1 : 1;
+        if (b.inPct !== a.inPct) return b.inPct - a.inPct;
+        if (a.outPct !== b.outPct) return a.outPct - b.outPct;
+        return a.weightedRank - b.weightedRank;
+    });
+
+    const items = enriched.map(m => {
         const label = `${midiToNoteName(m.root)} ${m.name}`;
-        const meta = (outPct > 0)
-            ? `${inPct}% match · ${outPct}% outside`
-            : `${inPct}% match`;
+        const meta = (m.outPct > 0)
+            ? `${m.inPct}% match · ${m.outPct}% outside`
+            : `${m.inPct}% match`;
 
         return `
-            <li class="scale-item${isBest ? " best" : ""}">
+            <li class="scale-item${m.isBest ? " best" : ""}">
                 <div class="scale-line">
                     <span class="scale-name">${label}</span>
-                    ${isBest ? '<span class="scale-tag">Best guess</span>' : ''}
+                    ${m.isBest ? '<span class="scale-tag">Best guess</span>' : ''}
                 </div>
                 <div class="scale-meta">${meta}</div>
             </li>
@@ -204,30 +236,30 @@ function buildWhyDetails(best, noteWeights) {
 
     if (maxWeight > 0) {
         if (rootWeight === maxWeight) {
-            reasons.push(`<strong>${rootName}</strong> is the most-used note`);
+            reasons.push(`<strong>${rootName}</strong> is the most-used note <span class="why-meaning">(often feels like “home”)</span>`);
         } else if (rootWeight > maxWeight * 0.6) {
-            reasons.push(`<strong>${rootName}</strong> is used a lot`);
+            reasons.push(`<strong>${rootName}</strong> is used a lot <span class="why-meaning">(can point to the home note)</span>`);
         }
 
         const thirdPc = (best.root + thirdInterval) % 12;
         const thirdWeight = noteWeights.get(thirdPc) || 0;
         if (thirdWeight > maxWeight * 0.3) {
-            reasons.push(`The <strong>${thirdName}</strong> (${best.name} 3rd) stands out`);
+            reasons.push(`The <strong>${thirdName}</strong> (${best.name} 3rd) stands out <span class="why-meaning">(the 3rd helps decide Major vs Minor)</span>`);
         } else if (thirdWeight > 0) {
-            reasons.push(`The <strong>${thirdName}</strong> (${best.name} 3rd) is present`);
+            reasons.push(`The <strong>${thirdName}</strong> (${best.name} 3rd) is present <span class="why-meaning">(the 3rd helps decide Major vs Minor)</span>`);
         }
 
         const domPc = (best.root + 7) % 12;
         const domWeight = noteWeights.get(domPc) || 0;
         if (domWeight > maxWeight * 0.5) {
-            reasons.push(`The dominant <strong>${dominantName}</strong> is strong`);
+            reasons.push(`The dominant <strong>${dominantName}</strong> is strong <span class="why-meaning">(dominant often leads back to the home note)</span>`);
         } else if (domWeight > 0) {
-            reasons.push(`The dominant <strong>${dominantName}</strong> appears`);
+            reasons.push(`The dominant <strong>${dominantName}</strong> appears <span class="why-meaning">(dominant often leads back to the home note)</span>`);
         }
     }
 
     if (reasons.length === 0) {
-        reasons.push("No clear single-note emphasis; this is the closest overall match.");
+        reasons.push(`No clear single-note emphasis; this is the closest overall match. <span class="why-meaning">(notes are spread more evenly)</span>`);
     }
 
     return `
@@ -246,8 +278,15 @@ function buildNotesFoundSection(usedNotes, noteWeights) {
     const total = sumWeights(noteWeights);
     const safeTotal = total > 0 ? total : 1;
 
-    const chips = usedNotes.map(pc => {
-        const pct = Math.round(((noteWeights.get(pc) || 0) / safeTotal) * 100);
+    const sortedNotes = usedNotes
+        .map(pc => ({ pc, weight: noteWeights.get(pc) || 0 }))
+        .sort((a, b) => {
+            if (b.weight !== a.weight) return b.weight - a.weight;
+            return a.pc - b.pc;
+        });
+
+    const chips = sortedNotes.map(({ pc, weight }) => {
+        const pct = Math.round((weight / safeTotal) * 100);
         return `
             <div class="note-chip">
                 <div class="note-name">${midiToNoteName(pc)}</div>

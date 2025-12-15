@@ -10,7 +10,7 @@
 }
 * { box-sizing: border-box; }
 body {
-    font-family: monospace;
+    font-family: "Helvetica Neue", Helvetica, "Trebuchet MS", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
     margin: 0;
@@ -63,7 +63,7 @@ p { margin: 0 0 10px; color: var(--muted); }
     font-size: 0.95em;
 }
 button {
-    font-family: monospace;
+    font-family: inherit;
     padding: 10px 14px;
     border: 1px solid var(--border);
     background: #fff;
@@ -80,6 +80,7 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
     border-radius: 10px;
     overflow: auto;
     min-height: 120px;
+    margin-bottom: 18px;
 }
 
 #output > * + * {
@@ -122,6 +123,7 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
 
 .scale-item.best {
     border-color: var(--accent);
+    background: var(--bg);
 }
 
 .scale-line {
@@ -216,6 +218,11 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
     border-radius: 10px;
     border: 1px solid var(--border);
     margin-top: 10px;
+}
+
+.why-meaning {
+    color: var(--muted);
+    font-size: 0.95em;
 }
 
 .why-title {
