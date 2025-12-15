@@ -325,7 +325,7 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
     height: var(--scales-fixed-h);
     overflow: hidden;
     padding-right: 2px;
-    border-radius: 10px;
+    border-radius: 0px;
 }
 
 .scale-list-wrap--scroll {
