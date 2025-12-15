@@ -1,26 +1,28 @@
 # MIDI Scale Finder
 
-Find the most likely **key/scale of a MIDI file** (currently **Major/Minor only**) directly in your browser.
+Find the most likely **key/scale** (currently **Major/Minor only**) from either:
+
+- a dropped/uploaded `.mid` / `.midi` file, or
+- a set of notes you pick manually (click the piano), including a computer-keyboard “piano mode”.
 
 Live site: https://midi.hakono.me/
 
 ## What the website does
 
-- You drop in a `.mid` / `.midi` file.
-- It reads all note events (across all tracks), reduces them to pitch classes (C…B), and estimates the most likely **tonic + mode**.
-- It shows:
-	- a single **best guess** (e.g. “E Minor”) with a rough confidence label
-	- a short list of alternatives
-	- a collapsible list of *every* Major/Minor scale that contains the detected pitch set (“fits these notes”)
+- You can upload a `.mid` / `.midi` file, or build a note set by selecting notes on the piano (mouse/touch/keyboard).
+- It reduces notes to pitch classes (C…B) and estimates the most likely **tonic + mode**.
+- It shows a ranked list of candidate Major/Minor keys, with a **best guess** highlighted.
 
-This is meant for quick “what key is this MIDI in?” checks for melodies and chord progressions.
+This is meant for quick “what key is this in?” checks for melodies, chord progressions, or any small set of notes.
 
 ## How it works
 
 Everything runs client-side.
 
 1. **Parse MIDI** using the Tone.js MIDI parser (vendored as `Midi.js`).
-2. Build `noteWeights`: `pitchClass -> totalDuration` (duration is summed over the whole file).
+2. Build `noteWeights`: `pitchClass -> weight`.
+	- For MIDI upload: weight is total note duration across the whole file.
+	- For manual note selection: weights are neutral (all selected notes count equally).
 3. Score all **24 candidates** (12 roots × Major/Minor):
 	 - add points for notes that are inside the scale
 	 - boost “important” degrees (tonic, dominant, subdominant, the mode-defining third)
@@ -28,7 +30,7 @@ Everything runs client-side.
 	 - subtract a penalty for notes outside the scale (and an extra penalty for the “wrong” third)
 4. Sort by score and display the top result.
 
-The “confidence” shown in the UI is a heuristic derived from the score/penalty numbers. It is not statistically calibrated.
+The “match %” shown in the UI means “how much of the input is inside the key” (by duration for MIDI, or by count for manual selection). It’s a descriptive metric, not a calibrated probability.
 
 ## Limitations
 
@@ -37,7 +39,7 @@ The “confidence” shown in the UI is a heuristic derived from the score/penal
 - **Key changes/modulation**: it assumes one key for the whole file.
 - MIDI with lots of chromatic passing tones, borrowed chords, or dense percussion can confuse it (it currently doesn’t ignore drums).
 
-On a small labeled set, it’s been about **~88% top-1 accuracy**. more testing should be done.
+On a small labeled set (older internal test run), it reached about **~88% top-1 accuracy**. More testing should be done.
 
 ## Contributing
 
@@ -63,3 +65,6 @@ Then open `http://localhost:8000/`.
 	- Filenames must contain key + mode, e.g. `C_Major.mid` or `G#Minor_MyChords.mid`.
 - `tune.js` is a Node script used to grid-search the scoring multipliers offline.
 
+### TODO
+
+- Allow connecting external MIDI keyboards as an input source (support Web MIDI API).

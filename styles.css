@@ -15,6 +15,7 @@ body {
     color: var(--text);
     margin: 0;
     padding: 32px 16px 64px;
+    overflow-y: scroll;
 }
 .page {
     max-width: 940px;
@@ -68,9 +69,9 @@ button {
     border: 1px solid var(--border);
     background: #fff;
     cursor: pointer;
-    transition: 0.15s ease transform, 0.15s ease box-shadow;
+    transition: 0.15s ease background, 0.15s ease border-color, 0.15s ease color;
 }
-button:hover { transform: translateY(-1px); box-shadow: 0 6px 18px -12px rgba(0,0,0,0.35); }
+button:hover { border-color: var(--accent); }
 button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform: none; }
 #output {
     background: var(--panel);
@@ -81,6 +82,209 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
     overflow: auto;
     min-height: 120px;
     margin-bottom: 18px;
+    --scale-row-h: 62px;
+    --scale-row-gap: 12px;
+    --scales-fixed-h: calc((7.6 * var(--scale-row-h)));;
+}
+
+.app-layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 18px;
+    align-items: start;
+}
+
+.app-left {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.app-title {
+    margin: 0;
+    font-size: 2em;
+    line-height: 1.05;
+}
+
+.app-controls {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.keyboard-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.kb-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.kb-toggle input {
+    cursor: pointer;
+}
+
+.kb-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.kb-select-label {
+    color: var(--muted);
+    font-size: 0.95em;
+}
+
+.kb-select select {
+    font-family: inherit;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--text);
+}
+
+.app-subtext {
+    color: var(--muted);
+    font-size: 0.95em;
+}
+
+.piano-mount {
+    width: 100%;
+}
+
+@media (max-width: 860px) {
+    .app-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Vertical piano */
+.vpiano {
+    position: relative;
+    width: 100%;
+    height: calc((7 * var(--white-h)) + (6 * var(--white-gap)));
+    overflow: visible;
+}
+
+.vpiano-white {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--white-gap);
+    height: 100%;
+}
+
+.vpiano-key {
+    font-family: inherit;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    cursor: pointer;
+    user-select: none;
+    padding: 0;
+    box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.vpiano-white-key {
+    height: var(--white-h);
+    width: 100%;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 12px;
+}
+
+.vpiano-white-key:hover:not(.selected) {
+    background: var(--bg);
+}
+
+.vpiano-black {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 62%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.vpiano-black-key {
+    position: absolute;
+    left: 0;
+    height: var(--black-h);
+    width: calc(100% - 10px);
+    background: #111;
+    border-color: rgba(255, 255, 255, 0.12);
+    border-radius: 7px;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: all;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+.vpiano-black-key:hover:not(.selected) {
+    background: #1d1d1d;
+}
+
+.vpiano-key.selected {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.vpiano-key.pressed:not(.selected) {
+    border-color: var(--accent);
+    background: var(--bg);
+}
+
+.vpiano-black-key.pressed:not(.selected) {
+    background: #1d1d1d;
+    color: #fff;
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+.vpiano-black-key.selected {
+    background: var(--accent);
+    filter: brightness(0.85);
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
+
+.vpiano-label {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.vpiano-black-key .vpiano-label {
+    align-items: center;
+}
+
+.vpiano-note {
+    font-weight: 700;
+    font-size: 1.05em;
+}
+
+.vpiano-pct {
+    font-size: 0.82em;
+    opacity: 0.85;
+}
+
+.vpiano-key:not(.has-midi-pct) .vpiano-pct {
+    display: none;
 }
 
 #output > * + * {
@@ -107,18 +311,102 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
 .scale-list {
     list-style: none;
     padding: 0;
-    margin: 0 0 24px 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    margin: 0;
+    display: flex;
+    flex-direction: column;
     gap: 12px;
+}
+
+.scale-list-wrap {
+    width: 100%;
+}
+
+.scale-list-wrap--fixed {
+    height: var(--scales-fixed-h);
+    overflow: hidden;
+    padding-right: 2px;
+    border-radius: 0px;
+}
+
+.scale-list-wrap--scroll {
+    overflow: auto;
+}
+
+
+.scale-list--onecol .scale-item-btn {
+    min-height: var(--scale-row-h);
+}
+
+.scale-list--compact {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.scale-item--compact {
+    border-radius: 10px;
+}
+
+.scale-item-btn--compact {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+}
+
+.scale-compact-name {
+    font-weight: 700;
+    color: var(--text);
+}
+
+.scale-compact-meta {
+    color: var(--muted);
+    font-size: 0.95em;
+    white-space: nowrap;
+}
+
+.scale-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.scale-toggle-btn {
+    padding: 8px 12px;
+    white-space: nowrap;
 }
 
 .scale-item {
     background: var(--panel);
-    padding: 12px 14px;
+    padding: 0;
     border-radius: 8px;
     border: 1px solid var(--border);
     font-size: 1.02em;
+    overflow: hidden;
+}
+
+.scale-item-btn {
+    display: block;
+    width: 100%;
+    padding: 12px 14px;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 8px;
+}
+
+.scale-item:hover {
+    border-color: var(--accent);
+    background: var(--bg);
+}
+
+.scale-item-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 8px;
 }
 
 .scale-item.best {
