@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>MIDI Scale Finder — detect the key of a MIDI file</title>
+    <title>MIDI Scale Finder — find a key from MIDI or notes</title>
     <script src="Midi.js"></script>
     <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
     <main class="page">
-        <h1>Find the key/scale of a MIDI file (Major/Minor)</h1>
-        <p class="muted">Upload a .mid/.midi file — or start choosing notes — to find a key/scale (Major/Minor).</p>
+        <h1>Find a key/scale from MIDI or notes (Major/Minor)</h1>
+        <p class="muted">Upload a .mid/.midi file — or choose notes — to find a key/scale (Major/Minor).</p>
 
         <div id="dropzone" class="panel" role="button" tabindex="0" aria-label="Drop MIDI file here or click to select file">
             <div id="dropzoneContent">
@@ -53,11 +53,11 @@
 
         <section class="panel" aria-labelledby="about-heading">
             <h2 id="about-heading">What this does</h2>
-            <p>Analyzes MIDI files to determine their key/scale. For now, it only supports Major and Minor scales.</p>
+            <p>Finds likely Major/Minor keys from either a MIDI file <em>or</em> a set of notes you select (mouse/touch/keyboard).</p>
             <h2>Key vs scale</h2>
             <p>A <strong>scale</strong> is a set of notes (like A natural minor). A <strong>key</strong> usually means a scale <em>plus</em> a “home” note (the tonic) and a musical context. This tool lists Major/Minor <strong>keys</strong> (tonic + mode) that best fit your selected notes.</p>
             <h2>How results are shown</h2>
-            <p>First you’ll see possible Major/Minor scales for the detected notes, ranked with the best guess highlighted. Open the “Why the best guess?” dropdown to see a simple explanation. Below that, you’ll see which notes were found in the MIDI and roughly how much of the song each note takes up.</p>
+            <p>You’ll see possible Major/Minor keys for the notes you provided, ranked with the best guess highlighted. If a MIDI file is uploaded, the “Why the best guess?” dropdown explains the choice using which notes are most emphasized in the file.</p>
             <h2>What is “emphasis”?</h2>
             <p>In this app, “emphasis” means which notes show up the most in the MIDI file. If several keys match equally well, the list order uses this as a tie-break: the tool prefers keys where the “home” note and other important notes show up more often. (This only applies when a MIDI file is uploaded.)</p>
             <h2>Keyboard mode</h2>
