@@ -9,7 +9,7 @@
 <body>
     <main class="page">
         <h1>Find the key/scale of a MIDI file (Major/Minor)</h1>
-        <p class="muted">Drop a .mid/.midi file and get a best-guess tonic + Major/Minor.</p>
+        <p class="muted">Upload a .mid/.midi file — or start choosing notes — to find a key/scale (Major/Minor).</p>
 
         <div id="dropzone" class="panel" role="button" tabindex="0" aria-label="Drop MIDI file here or click to select file">
             <div id="dropzoneContent">
@@ -18,7 +18,24 @@
             </div>
             <input type="file" id="fileInput" accept=".mid,.midi" style="display: none;" aria-label="Choose MIDI file">
         </div>
-        <div id="output" class="hidden" aria-live="polite" role="region" aria-label="Analysis results"></div>
+        <div id="output" aria-live="polite" role="region" aria-label="Analysis results">
+            <div class="app-layout">
+                <section class="app-left" aria-label="Note selection">
+                    <h2 class="app-title" id="scaleTitle">Auto Scale</h2>
+                    <div id="pianoMount" class="piano-mount" aria-label="Piano note selector"></div>
+                    <div class="app-controls">
+                        <button id="clearBtn" type="button" disabled>Clear</button>
+                        <button id="resetToMidiBtn" type="button" disabled>Reset to MIDI</button>
+                        <button id="undoBtn" type="button" disabled>Undo</button>
+                        <button id="redoBtn" type="button" disabled>Redo</button>
+                    </div>
+                    <div class="app-subtext" id="selectionHint">Select notes to see possible scales.</div>
+                </section>
+                <section class="app-right" aria-label="Scale results">
+                    <div id="scaleOutput"></div>
+                </section>
+            </div>
+        </div>
 
         <section class="panel" aria-labelledby="about-heading">
             <h2 id="about-heading">What this does</h2>

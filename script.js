@@ -1,43 +1,205 @@
 import {
     readMidi,
     midiToNoteName,
+    findMatchingScalesWeighted,
     findMatchingScalesSimple,
     getScalePitchClasses
 } from './scaleDetector.js';
+
+import { createVerticalPiano } from './pianoView.js';
 
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("fileInput");
 const fileName = document.getElementById("fileName");
 const output = document.getElementById("output");
+const scaleOutput = document.getElementById("scaleOutput");
+const scaleTitle = document.getElementById("scaleTitle");
+const clearBtn = document.getElementById('clearBtn');
+const resetToMidiBtn = document.getElementById('resetToMidiBtn');
+const undoBtn = document.getElementById('undoBtn');
+const redoBtn = document.getElementById('redoBtn');
+const selectionHint = document.getElementById('selectionHint');
+const pianoMount = document.getElementById('pianoMount');
 
-// Store last processed data so we can re-render without re-reading the file
-let lastProcessedData = null;
+// Baseline (from MIDI) and current selection state
+let midiBaselineNoteWeights = null; // Map<pitchClass, duration>
+let midiBaselinePitchClasses = null; // Set<pitchClass>
+let midiPctByPc = null; // Map<pitchClass, pct>
+let selectedPitchClasses = new Set();
+
+let history = [];
+let historyIndex = -1;
+let suppressHistory = false;
+
+function pcsKey(pcs) {
+    return [...pcs].slice().sort((a, b) => a - b).join(',');
+}
+
+function pushHistory(nextSet) {
+    if (suppressHistory) return;
+
+    const key = pcsKey(nextSet);
+    const currentKey = (historyIndex >= 0 && history[historyIndex]) ? pcsKey(history[historyIndex]) : null;
+    if (key === currentKey) {
+        updateUndoRedoButtons();
+        return;
+    }
+
+    // Drop redo branch
+    history = history.slice(0, historyIndex + 1);
+    history.push(new Set(nextSet));
+    historyIndex = history.length - 1;
+    updateUndoRedoButtons();
+}
+
+function updateUndoRedoButtons() {
+    undoBtn.disabled = historyIndex <= 0;
+    redoBtn.disabled = historyIndex < 0 || historyIndex >= history.length - 1;
+}
+
+function applySelection(pcs, { silent = false, recordHistory = true } = {}) {
+    const next = new Set((pcs || []).map(Number));
+    piano.setSelectedPitchClasses([...next], { silent: true });
+    selectedPitchClasses = next;
+    updateOutputFromSelection();
+    if (recordHistory) pushHistory(next);
+}
+
+const piano = createVerticalPiano({
+    mountEl: pianoMount,
+    onSelectionChange: (nextSelected) => {
+        selectedPitchClasses = nextSelected;
+        pushHistory(nextSelected);
+        updateOutputFromSelection();
+    }
+});
+
+// Init history with empty state
+pushHistory(new Set());
 
 const hide = (el) => el.classList.add("hidden");
 const show = (el) => el.classList.remove("hidden");
 
-function displayResults(data) {
-    const { usedNotes, noteWeights, matches: weightedMatches } = data;
+function sumWeights(noteWeights) {
+    let total = 0;
+    for (const v of noteWeights.values()) total += v;
+    return total;
+}
 
-    output.innerHTML = buildResultsLayout(usedNotes, noteWeights, weightedMatches);
-    show(output);
+function buildPctMap(noteWeights) {
+    const total = sumWeights(noteWeights);
+    const safeTotal = total > 0 ? total : 1;
+    const map = new Map();
+    for (const [pc, w] of noteWeights.entries()) {
+        map.set(pc, Math.round((w / safeTotal) * 100));
+    }
+    return map;
+}
+
+function buildNoteWeightsForSelection() {
+    const pcs = [...selectedPitchClasses].sort((a, b) => a - b);
+    const noteWeights = new Map();
+
+    if (midiBaselineNoteWeights && midiBaselineNoteWeights.size > 0) {
+        const baselineValues = [...midiBaselineNoteWeights.values()];
+        const minWeight = Math.min(...baselineValues);
+        const defaultAdded = Number.isFinite(minWeight) ? Math.max(0.0001, minWeight * 0.25) : 1;
+
+        for (const pc of pcs) {
+            noteWeights.set(pc, midiBaselineNoteWeights.get(pc) ?? defaultAdded);
+        }
+    } else {
+        for (const pc of pcs) {
+            noteWeights.set(pc, 1);
+        }
+    }
+
+    return noteWeights;
+}
+
+function updateTitle(best) {
+    if (!best) {
+        scaleTitle.textContent = 'Auto Scale';
+        return;
+    }
+    scaleTitle.textContent = `${midiToNoteName(best.root)} ${best.name}`;
+}
+
+function updateResetButtonState() {
+    const hasBaseline = !!(midiBaselinePitchClasses && midiBaselinePitchClasses.size > 0);
+    resetToMidiBtn.disabled = !hasBaseline;
+    clearBtn.disabled = selectedPitchClasses.size === 0;
+}
+
+function updateOutputFromSelection() {
+    const usedNotes = [...selectedPitchClasses].sort((a, b) => a - b);
+
+    if (usedNotes.length === 0) {
+        scaleOutput.innerHTML = `
+            <div class="result-block">
+                <div class="possible-scales-header">Possible scales</div>
+                <p>Select one or more notes to see possible Major/Minor scales.</p>
+            </div>
+        `;
+        selectionHint.textContent = midiBaselinePitchClasses
+            ? 'Select/deselect notes to refine the MIDI.'
+            : 'Upload MIDI or start selecting notes to find a key/scale.';
+        updateTitle(null);
+        updateResetButtonState();
+        updateUndoRedoButtons();
+        return;
+    }
+
+    const noteWeights = buildNoteWeightsForSelection();
+    const weightedMatches = findMatchingScalesWeighted(usedNotes, noteWeights);
+    const simpleMatches = findMatchingScalesSimple(usedNotes);
+
+    const rankByKey = new Map(
+        weightedMatches.map((m, idx) => [`${m.root}-${m.name}`, idx])
+    );
+
+    const candidates = (simpleMatches.length > 0)
+        ? simpleMatches
+            .slice()
+            .sort((a, b) => (rankByKey.get(`${a.root}-${a.name}`) ?? 999) - (rankByKey.get(`${b.root}-${b.name}`) ?? 999))
+        : weightedMatches.slice(0, 12).map(m => ({ root: m.root, name: m.name, rootName: midiToNoteName(m.root) }));
+
+    const best = candidates[0];
+
+    const headerText = (simpleMatches.length > 0)
+        ? `Possible scales (contain all selected notes): (${candidates.length})`
+        : `Closest Major/Minor matches: (${candidates.length})`;
+
+    const scalesHtml = buildPossibleScalesSection(candidates, best, noteWeights, weightedMatches);
+    const whyHtml = buildWhyDetails(best, noteWeights);
+
+    scaleOutput.innerHTML = `
+        <div class="result-block">
+            <div class="possible-scales-header">${headerText}</div>
+            ${scalesHtml}
+            ${whyHtml}
+        </div>
+    `;
+
+    selectionHint.textContent = midiBaselinePitchClasses
+        ? 'Select/deselect notes; scales update instantly.'
+        : 'Manual mode: select notes; scales update instantly.';
+    updateTitle(best);
+    updateResetButtonState();
+    updateUndoRedoButtons();
 }
 
 // Process a file (used by both drag-drop and file input)
 function processFile(file) {
-    output.textContent = "";
-    hide(output);
-    lastProcessedData = null;
+    // keep the UI visible; just update baseline + selection
 
     if (!file) {
-        output.textContent = "No file selected";
-        show(output);
+        selectionHint.textContent = 'No file selected. Use manual note selection.';
         return;
     }
 
     if (!file.name.endsWith(".mid") && !file.name.endsWith(".midi")) {
-        output.textContent = "Please select a MIDI file (.mid or .midi)";
-        show(output);
+        selectionHint.textContent = 'Please select a MIDI file (.mid or .midi).';
         return;
     }
     
@@ -49,18 +211,64 @@ function processFile(file) {
     reader.onload = () => {
         const arrayBuffer = reader.result;
         readMidi(arrayBuffer, (usedNotes, noteWeights, matches, tonic) => {
-            lastProcessedData = { usedNotes, noteWeights, matches, tonic };
-            displayResults(lastProcessedData);
+            midiBaselineNoteWeights = noteWeights;
+            midiBaselinePitchClasses = new Set(usedNotes);
+            midiPctByPc = buildPctMap(noteWeights);
+
+            piano.setMidiPercentages(midiPctByPc);
+            piano.setSelectedPitchClasses(usedNotes, { silent: true });
+            selectedPitchClasses = new Set(usedNotes);
+            updateOutputFromSelection();
         });
     }
 
     reader.onerror = () => {
-        output.textContent = "Error reading file. Please try again.";
-        show(output);
+        selectionHint.textContent = 'Error reading file. Please try again.';
     }
 
     reader.readAsArrayBuffer(file);
 }
+
+clearBtn.addEventListener('click', () => {
+    applySelection([], { silent: true, recordHistory: true });
+});
+
+resetToMidiBtn.addEventListener('click', () => {
+    if (!midiBaselinePitchClasses || midiBaselinePitchClasses.size === 0) return;
+    applySelection([...midiBaselinePitchClasses], { silent: true, recordHistory: true });
+});
+
+undoBtn.addEventListener('click', () => {
+    if (historyIndex <= 0) return;
+    suppressHistory = true;
+    historyIndex -= 1;
+    const state = history[historyIndex] || new Set();
+    applySelection([...state], { silent: true, recordHistory: false });
+    suppressHistory = false;
+    updateUndoRedoButtons();
+});
+
+redoBtn.addEventListener('click', () => {
+    if (historyIndex < 0 || historyIndex >= history.length - 1) return;
+    suppressHistory = true;
+    historyIndex += 1;
+    const state = history[historyIndex] || new Set();
+    applySelection([...state], { silent: true, recordHistory: false });
+    suppressHistory = false;
+    updateUndoRedoButtons();
+});
+
+// Clickable scales: apply scale pitch-classes to selection
+scaleOutput.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-scale-root][data-scale-mode]');
+    if (!btn) return;
+    const root = Number(btn.dataset.scaleRoot);
+    const mode = btn.dataset.scaleMode;
+    if (!Number.isFinite(root) || !mode) return;
+
+    const pcs = getScalePitchClasses(root, mode);
+    applySelection(pcs, { silent: true, recordHistory: true });
+});
 
 // Handle drag over
 dropzone.addEventListener("dragover", (event) => {
@@ -163,12 +371,6 @@ function buildHintText(simpleMatchCount, candidates, best, noteWeights) {
     return `<div class="hint-text">Many scales can contain the same notes. The one tagged “Best guess” uses which notes are emphasized in the MIDI.${extra}</div>`;
 }
 
-function sumWeights(noteWeights) {
-    let total = 0;
-    for (const v of noteWeights.values()) total += v;
-    return total;
-}
-
 function computeScaleCoveragePct(root, mode, noteWeights) {
     const total = sumWeights(noteWeights);
     if (total <= 0) return { inPct: 0, outPct: 0 };
@@ -210,11 +412,13 @@ function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatch
 
         return `
             <li class="scale-item${m.isBest ? " best" : ""}">
-                <div class="scale-line">
-                    <span class="scale-name">${label}</span>
-                    ${m.isBest ? '<span class="scale-tag">Best guess</span>' : ''}
-                </div>
-                <div class="scale-meta">${meta}</div>
+                <button type="button" class="scale-item-btn" data-scale-root="${m.root}" data-scale-mode="${m.name}" aria-label="Select ${label}">
+                    <div class="scale-line">
+                        <span class="scale-name">${label}</span>
+                        ${m.isBest ? '<span class="scale-tag">Best guess</span>' : ''}
+                    </div>
+                    <div class="scale-meta">${meta}</div>
+                </button>
             </li>
         `;
     }).join("");
@@ -302,3 +506,9 @@ function buildNotesFoundSection(usedNotes, noteWeights) {
         </div>
     `;
 }
+
+// Initialize UI on first load (manual mode)
+updateOutputFromSelection();
+
+// Expose Piano API globally (optional)
+window.piano = piano;
