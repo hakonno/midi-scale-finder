@@ -31,6 +31,13 @@ let history = [];
 let historyIndex = -1;
 let suppressHistory = false;
 
+let lastAppliedScale = null; // { root:number, mode:string } | null
+
+function isSameKey(a, b) {
+    if (!a || !b) return false;
+    return a.root === b.root && a.name === b.name;
+}
+
 function pcsKey(pcs) {
     return [...pcs].slice().sort((a, b) => a - b).join(',');
 }
@@ -69,6 +76,8 @@ const piano = createVerticalPiano({
     mountEl: pianoMount,
     onSelectionChange: (nextSelected) => {
         selectedPitchClasses = nextSelected;
+        // If user is manually editing notes, treat it as a freeform selection.
+        lastAppliedScale = null;
         pushHistory(nextSelected);
         updateOutputFromSelection();
     }
@@ -166,12 +175,29 @@ function updateOutputFromSelection() {
 
     const best = candidates[0];
 
-    const headerText = (simpleMatches.length > 0)
-        ? `Possible scales (contain all selected notes): (${candidates.length})`
-        : `Closest Major/Minor matches: (${candidates.length})`;
+    const selectedKey = lastAppliedScale
+        ? { root: lastAppliedScale.root, name: lastAppliedScale.mode }
+        : null;
+
+    const bestForTitle = selectedKey || best;
+
+    let headerText;
+    if (lastAppliedScale) {
+        const selectedLabel = `${midiToNoteName(lastAppliedScale.root)} ${lastAppliedScale.mode}`;
+        const alts = candidates
+            .filter(c => !(c.root === lastAppliedScale.root && c.name === lastAppliedScale.mode))
+            .slice(0, 3)
+            .map(c => `${midiToNoteName(c.root)} ${c.name}`);
+        const also = alts.length ? alts.join(', ') : '—';
+        headerText = `Selected key: ${selectedLabel} · Similar: ${also}`;
+    } else {
+        headerText = (simpleMatches.length > 0)
+            ? `Possible keys (contain all selected notes): (${candidates.length})`
+            : `Closest Major/Minor keys: (${candidates.length})`;
+    }
 
     const scalesHtml = buildPossibleScalesSection(candidates, best, noteWeights, weightedMatches);
-    const whyHtml = buildWhyDetails(best, noteWeights);
+    const whyHtml = lastAppliedScale ? '' : buildWhyDetails(best, noteWeights);
 
     scaleOutput.innerHTML = `
         <div class="result-block">
@@ -184,7 +210,7 @@ function updateOutputFromSelection() {
     selectionHint.textContent = midiBaselinePitchClasses
         ? 'Select/deselect notes; scales update instantly.'
         : 'Manual mode: select notes; scales update instantly.';
-    updateTitle(best);
+    updateTitle(bestForTitle);
     updateResetButtonState();
     updateUndoRedoButtons();
 }
@@ -211,6 +237,7 @@ function processFile(file) {
     reader.onload = () => {
         const arrayBuffer = reader.result;
         readMidi(arrayBuffer, (usedNotes, noteWeights, matches, tonic) => {
+            lastAppliedScale = null;
             midiBaselineNoteWeights = noteWeights;
             midiBaselinePitchClasses = new Set(usedNotes);
             midiPctByPc = buildPctMap(noteWeights);
@@ -230,11 +257,13 @@ function processFile(file) {
 }
 
 clearBtn.addEventListener('click', () => {
+    lastAppliedScale = null;
     applySelection([], { silent: true, recordHistory: true });
 });
 
 resetToMidiBtn.addEventListener('click', () => {
     if (!midiBaselinePitchClasses || midiBaselinePitchClasses.size === 0) return;
+    lastAppliedScale = null;
     applySelection([...midiBaselinePitchClasses], { silent: true, recordHistory: true });
 });
 
@@ -267,7 +296,24 @@ scaleOutput.addEventListener('click', (e) => {
     if (!Number.isFinite(root) || !mode) return;
 
     const pcs = getScalePitchClasses(root, mode);
+    lastAppliedScale = { root, mode };
     applySelection(pcs, { silent: true, recordHistory: true });
+});
+
+// Right-click scale preview: do not overwrite selection
+scaleOutput.addEventListener('contextmenu', (e) => {
+    const btn = e.target.closest('[data-scale-root][data-scale-mode]');
+    if (!btn) return;
+    e.preventDefault();
+
+    const root = Number(btn.dataset.scaleRoot);
+    const mode = btn.dataset.scaleMode;
+    if (!Number.isFinite(root) || !mode) return;
+
+    const pcs = getScalePitchClasses(root, mode);
+    if (window.piano && typeof window.piano.previewPitchClasses === 'function') {
+        window.piano.previewPitchClasses(pcs, { velocity: 0.85 });
+    }
 });
 
 // Handle drag over
@@ -364,11 +410,18 @@ function buildHintText(simpleMatchCount, candidates, best, noteWeights) {
     const bestInPct = enriched.find(m => m.root === best.root && m.name === best.name)?.inPct ?? 0;
     const maxInPct = Math.max(...enriched.map(m => m.inPct));
 
-    const extra = (bestInPct < maxInPct)
-        ? " Match% just means notes are inside the scale. Best guess also looks at which notes are emphasized."
-        : "";
+    const perfectCount = enriched.filter(m => m.inPct === 100).length;
 
-    return `<div class="hint-text">Many scales can contain the same notes. The one tagged “Best guess” uses which notes are emphasized in the MIDI.${extra}</div>`;
+    const extraParts = [];
+    if (bestInPct < maxInPct) {
+        extraParts.push('Match% just means notes are inside the key. Best guess also looks at which notes are emphasized.');
+    }
+    if (perfectCount > 1) {
+        extraParts.push('When multiple keys are 100% match, the order is a tie-break based on note emphasis (tonic/3rd/5th).');
+    }
+    const extra = extraParts.length ? ` ${extraParts.join(' ')}` : '';
+
+    return `<div class="hint-text">Many keys can contain the same notes. The one tagged “Best guess” uses which notes are emphasized in the MIDI/selection.${extra}</div>`;
 }
 
 function computeScaleCoveragePct(root, mode, noteWeights) {
@@ -390,11 +443,13 @@ function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatch
         (weightedMatches || []).map((m, idx) => [`${m.root}-${m.name}`, idx])
     );
 
+    const selectedKey = lastAppliedScale ? { root: lastAppliedScale.root, name: lastAppliedScale.mode } : null;
     const enriched = candidates.map(m => {
-        const isBest = m.root === best.root && m.name === best.name;
+        const isSelected = selectedKey ? (m.root === selectedKey.root && m.name === selectedKey.name) : false;
+        const isBest = selectedKey ? isSelected : (m.root === best.root && m.name === best.name);
         const { inPct, outPct } = computeScaleCoveragePct(m.root, m.name, noteWeights);
         const weightedRank = rankByKey.get(`${m.root}-${m.name}`) ?? 999;
-        return { ...m, isBest, inPct, outPct, weightedRank };
+        return { ...m, isBest, isSelected, inPct, outPct, weightedRank };
     });
 
     enriched.sort((a, b) => {
@@ -404,18 +459,28 @@ function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatch
         return a.weightedRank - b.weightedRank;
     });
 
+    const perfectCount = enriched.filter(m => m.inPct === 100).length;
+
     const items = enriched.map(m => {
         const label = `${midiToNoteName(m.root)} ${m.name}`;
+        const showEmphasisRank = perfectCount > 1 && m.inPct === 100 && m.weightedRank < 999;
+        const emphasis = showEmphasisRank ? ` · emphasis #${m.weightedRank + 1}` : '';
         const meta = (m.outPct > 0)
-            ? `${m.inPct}% match · ${m.outPct}% outside`
-            : `${m.inPct}% match`;
+            ? `${m.inPct}% match · ${m.outPct}% outside${emphasis}`
+            : `${m.inPct}% match${emphasis}`;
+
+        const tag = m.isSelected
+            ? '<span class="scale-tag">Selected</span>'
+            : (!lastAppliedScale && m.isBest)
+                ? '<span class="scale-tag">Best guess</span>'
+                : '';
 
         return `
             <li class="scale-item${m.isBest ? " best" : ""}">
                 <button type="button" class="scale-item-btn" data-scale-root="${m.root}" data-scale-mode="${m.name}" aria-label="Select ${label}">
                     <div class="scale-line">
                         <span class="scale-name">${label}</span>
-                        ${m.isBest ? '<span class="scale-tag">Best guess</span>' : ''}
+                        ${tag}
                     </div>
                     <div class="scale-meta">${meta}</div>
                 </button>
@@ -423,7 +488,9 @@ function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatch
         `;
     }).join("");
 
-    return `<ul class="scale-list">${items}</ul>`;
+    const tip = `<div class="hint-text">Tip: Right-click a key for preview.</div>`;
+
+    return `<ul class="scale-list">${items}</ul>${tip}`;
 }
 
 function buildWhyDetails(best, noteWeights) {

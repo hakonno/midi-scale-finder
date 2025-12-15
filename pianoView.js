@@ -38,6 +38,9 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
     let suppressCallback = false;
 
     let audioContext = null;
+    let shaperCurve = null;
+
+    let previewToken = 0;
 
     function ensureAudioContext() {
         if (!audioContext) {
@@ -45,6 +48,16 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         }
         if (audioContext.state === 'suspended') {
             audioContext.resume().catch(() => {});
+        }
+
+        if (!shaperCurve) {
+            // Soft clip curve (cached once per session)
+            const curve = new Float32Array(44100);
+            for (let i = 0; i < curve.length; i++) {
+                const x = (i * 2) / curve.length - 1;
+                curve[i] = Math.tanh(2.2 * x);
+            }
+            shaperCurve = curve;
         }
     }
 
@@ -58,34 +71,37 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
 
             const vel = Math.max(0, Math.min(1, velocity));
 
-            // Output gain + gentle saturation (grand-ish)
+            // Output chain: tone filter -> compressor -> soft clip -> envelope -> destination
             const out = audioContext.createGain();
-            const shaper = audioContext.createWaveShaper();
+            const compressor = audioContext.createDynamicsCompressor();
             const lp = audioContext.createBiquadFilter();
-            lp.type = 'lowpass';
-            lp.frequency.setValueAtTime(3800, now);
-            lp.Q.setValueAtTime(0.5, now);
+            const shaper = audioContext.createWaveShaper();
 
-            // Soft clip curve
-            const curve = new Float32Array(44100);
-            for (let i = 0; i < curve.length; i++) {
-                const x = (i * 2) / curve.length - 1;
-                curve[i] = Math.tanh(2.2 * x);
-            }
-            shaper.curve = curve;
+            // Brighter for higher notes; darker for lower
+            const cutoff = 2600 + (pc % 12) * 140;
+            lp.type = 'lowpass';
+            lp.frequency.setValueAtTime(cutoff, now);
+            lp.Q.setValueAtTime(0.85, now);
+
+            compressor.threshold.setValueAtTime(-30, now);
+            compressor.ratio.setValueAtTime(4, now);
+            compressor.attack.setValueAtTime(0.003, now);
+            compressor.release.setValueAtTime(0.18, now);
+
+            shaper.curve = shaperCurve;
             shaper.oversample = '2x';
 
-            // Main envelope
+            // Main envelope: fast attack, longer decay/sustain
             out.gain.setValueAtTime(0.0001, now);
-            out.gain.exponentialRampToValueAtTime(0.30 * vel, now + 0.008);
-            out.gain.exponentialRampToValueAtTime(0.0001, now + 1.1);
+            out.gain.exponentialRampToValueAtTime(0.26 * vel, now + 0.01);
+            out.gain.exponentialRampToValueAtTime(0.0001, now + 2.4);
 
-            // String partials (sine/triangle mix) with slight detune
+            // Harmonics (piano-like partials) with tiny detune
             const partials = [
-                { mult: 1, type: 'triangle', gain: 0.70 },
-                { mult: 2, type: 'sine', gain: 0.35 },
-                { mult: 3, type: 'sine', gain: 0.18 },
-                { mult: 4, type: 'sine', gain: 0.10 }
+                { ratio: 1.0, gain: 0.60 },
+                { ratio: 2.0, gain: 0.30 },
+                { ratio: 3.0, gain: 0.15 },
+                { ratio: 4.0, gain: 0.08 }
             ];
 
             const sum = audioContext.createGain();
@@ -95,9 +111,11 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
             for (const p of partials) {
                 const osc = audioContext.createOscillator();
                 const g = audioContext.createGain();
-                osc.type = p.type;
-                osc.frequency.setValueAtTime(freq * p.mult, now);
-                osc.detune.setValueAtTime((Math.random() - 0.5) * 6, now);
+
+                // Low notes: triangle for body; high notes: sine for clarity
+                osc.type = (pc % 12) <= 6 ? 'triangle' : 'sine';
+                osc.frequency.setValueAtTime(freq * p.ratio, now);
+                osc.detune.setValueAtTime((Math.random() - 0.5) * 3, now);
                 g.gain.setValueAtTime(p.gain, now);
                 osc.connect(g);
                 g.connect(sum);
@@ -105,7 +123,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
             }
 
             // Hammer transient: short noise burst
-            const noiseBuf = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * 0.03), audioContext.sampleRate);
+            const noiseBuf = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * 0.04), audioContext.sampleRate);
             const data = noiseBuf.getChannelData(0);
             for (let i = 0; i < data.length; i++) {
                 data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length / 3));
@@ -114,29 +132,43 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
             noise.buffer = noiseBuf;
             const bp = audioContext.createBiquadFilter();
             bp.type = 'bandpass';
-            bp.frequency.setValueAtTime(1800, now);
-            bp.Q.setValueAtTime(1.2, now);
+            bp.frequency.setValueAtTime(2500, now);
+            bp.Q.setValueAtTime(1.5, now);
             const ng = audioContext.createGain();
-            ng.gain.setValueAtTime(0.12 * vel, now);
-            ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+            ng.gain.setValueAtTime(0.08 * vel, now);
+            ng.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
             noise.connect(bp);
             bp.connect(ng);
             ng.connect(sum);
 
             sum.connect(lp);
-            lp.connect(shaper);
+            lp.connect(compressor);
+            compressor.connect(shaper);
             shaper.connect(out);
             out.connect(audioContext.destination);
 
             for (const osc of oscillators) {
                 osc.start(now);
-                osc.stop(now + 1.15);
+                osc.stop(now + 2.6);
             }
             noise.start(now);
-            noise.stop(now + 0.04);
+            noise.stop(now + 0.03);
         } catch {
             // Ignore audio failures (e.g. blocked by browser policy)
         }
+    }
+
+    function previewPitchClasses(pcs, { velocity = 0.85, intervalMs = 190 } = {}) {
+        const token = ++previewToken;
+        const ordered = [...new Set((pcs || []).map(Number))].sort((a, b) => a - b);
+        if (ordered.length === 0) return;
+
+        ordered.forEach((pc, idx) => {
+            window.setTimeout(() => {
+                if (token !== previewToken) return;
+                playPc(pc, velocity);
+            }, idx * intervalMs);
+        });
     }
 
     function render() {
@@ -310,6 +342,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
                 .map((n) => PITCH_CLASS_TO_SHARP_NAME.indexOf(n))
                 .filter((pc) => pc >= 0);
             setSelectedPitchClasses(pcs, { silent: false });
-        }
+        },
+        previewPitchClasses
     };
 }
