@@ -1,0 +1,12 @@
+{
+  "name": "midi-scale-finder",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Find the most likely key/scale of a MIDI file or a set of notes",
+  "scripts": {
+    "tune": "node tune.js"
+  },
+  "devDependencies": {
+    "@tonejs/midi": "^2.0.28"
+  }
+}

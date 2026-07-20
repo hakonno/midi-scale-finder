@@ -1,12 +1,19 @@
 // Tuning script - finds optimal multipliers for scale detection
-// Run with: node tune.js
-// First run: npm install @tonejs/midi
+// Run with: node tune.js <path-to-midi-folder>
+// First run: npm install
+// Dataset: Major/Minor files from https://github.com/BenLeon2001/Free-Chord-Progressions
+// with filenames like C_Major_..._Progression_1.mid
 
 const { readFileSync, readdirSync } = require('fs');
 const { join } = require('path');
 const { Midi } = require('@tonejs/midi');
 
-const MIDI_FOLDER = 'C:\\Users\\hakon\\Documents\\Unsynced programmering\\Free-Chord-Progressions-main\\allmajorminor';
+const MIDI_FOLDER = process.argv[2];
+if (!MIDI_FOLDER) {
+    console.error('Usage: node tune.js <path-to-midi-folder>');
+    console.error('The folder must contain .mid files named like C_Major_... or A_Minor_...');
+    process.exit(1);
+}
 
 const SCALES = {
     "Major": [0, 2, 4, 5, 7, 9, 11],
@@ -53,6 +60,8 @@ function loadMidiFiles() {
 
         const noteWeights = new Map();
         midi.tracks.forEach(track => {
+            // Skip percussion (MIDI channel 10), same as scaleDetector.js
+            if (track.channel === 9 || (track.instrument && track.instrument.percussion)) return;
             track.notes.forEach(note => {
                 const pc = note.midi % 12;
                 noteWeights.set(pc, (noteWeights.get(pc) || 0) + note.duration);
@@ -82,7 +91,10 @@ function findMatchingScales(usedNotes, noteWeights, params) {
         subdominantMult,
         thirdMult,
         wrongThirdPenalty,
-        outsidePenalty
+        outsidePenalty,
+        // Fixed, not grid-searched: validated separately on harmonic-minor data
+        // (see scaleDetector.js). Keeps this scorer identical to production.
+        raised7thPenalty = 1.0
     } = params;
 
     const results = [];
@@ -114,9 +126,14 @@ function findMatchingScales(usedNotes, noteWeights, params) {
 
                     score += points;
                 } else {
-                    penalty += weight * outsidePenalty;
-                    
                     const scaleDegree = (pc - root + 12) % 12;
+
+                    if (name === "Minor" && scaleDegree === 11) {
+                        penalty += weight * raised7thPenalty;
+                    } else {
+                        penalty += weight * outsidePenalty;
+                    }
+
                     if (name === "Major" && scaleDegree === 3) {
                         penalty += weight * wrongThirdPenalty;
                     } else if (name === "Minor" && scaleDegree === 4) {

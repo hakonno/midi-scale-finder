@@ -43,6 +43,10 @@
                             </select>
                         </label>
                     </div>
+                    <div class="keyboard-controls midi-controls" aria-label="MIDI device input">
+                        <button id="midiConnectBtn" type="button">Connect MIDI device</button>
+                        <span id="midiStatus" class="midi-status" aria-live="polite"></span>
+                    </div>
                     <div class="app-subtext" id="selectionHint">Select notes to see possible scales.</div>
                 </section>
                 <section class="app-right" aria-label="Scale results">
@@ -64,6 +68,8 @@
             <p>Keyboard mode lets you play notes using your computer keyboard (with sound). It maps keys by physical key position (so it works across different keyboard layouts).</p>
             <h2>Keyboard input modes</h2>
             <p><strong>Record (accumulate)</strong> adds notes you play to your selection, so you can build a note set. <strong>Live (held)</strong> shows scales based on the notes you are holding down right now.</p>
+            <h2>MIDI keyboard input</h2>
+            <p>Click <strong>Connect MIDI device</strong> to play notes from a hardware MIDI keyboard. It uses the same Record/Live input modes as keyboard mode. Works in Chrome, Edge, and Firefox (Safari does not support Web MIDI).</p>
             <h2>What does "tonic" mean?</h2>
             <p>The tonic is the "home" note—the pitch everything feels drawn back to. Knowing the tonic tells you the song's key, so you know which chords and melodies fit naturally.</p>
             <h2>Keyboard mapping</h2>
