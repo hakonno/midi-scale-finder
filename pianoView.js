@@ -206,7 +206,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
             let ampTotal = 0;
             for (let n = 1; n <= 8; n++) {
                 const pf = f0 * n * Math.sqrt(1 + inharmonicity * n * n);
-                if (pf > nyquist * 0.45) break;
+                if (n > 1 && pf > nyquist * 0.45) break;
                 const amp = Math.pow(rolloff, n - 1);
                 partials.push({ n, pf, amp });
                 ampTotal += amp;
