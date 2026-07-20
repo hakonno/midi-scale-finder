@@ -39,7 +39,8 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
     let suppressCallback = false;
 
     let audioContext = null;
-    let shaperCurve = null;
+    let masterBus = null;
+    let hammerBuffer = null;
     let audioUnlocked = false;
 
     let previewToken = 0;
@@ -64,7 +65,8 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
             }
         }
         audioContext = null;
-        shaperCurve = null;
+        masterBus = null;
+        hammerBuffer = null;
         audioUnlocked = false;
     }
 
@@ -91,15 +93,62 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
             audioContext.resume().catch(() => {});
         }
 
-        if (!shaperCurve) {
-            // Soft clip curve (cached once per session)
-            const curve = new Float32Array(44100);
-            for (let i = 0; i < curve.length; i++) {
-                const x = (i * 2) / curve.length - 1;
-                curve[i] = Math.tanh(2.2 * x);
-            }
-            shaperCurve = curve;
+        if (!masterBus) {
+            masterBus = buildMasterBus(audioContext);
         }
+        if (!hammerBuffer) {
+            hammerBuffer = buildHammerBuffer(audioContext);
+        }
+    }
+
+    // Shared output chain: voices -> gain -> compressor -> destination,
+    // with a subtle parallel room reverb (generated impulse response).
+    function buildMasterBus(ctx) {
+        const input = ctx.createGain();
+        input.gain.value = 0.9;
+
+        const compressor = ctx.createDynamicsCompressor();
+        compressor.threshold.value = -18;
+        compressor.knee.value = 18;
+        compressor.ratio.value = 3;
+        compressor.attack.value = 0.004;
+        compressor.release.value = 0.22;
+
+        const convolver = ctx.createConvolver();
+        convolver.buffer = buildImpulseResponse(ctx, 1.6, 2.8);
+        const reverbGain = ctx.createGain();
+        reverbGain.gain.value = 0.14;
+
+        input.connect(compressor);
+        input.connect(convolver);
+        convolver.connect(reverbGain);
+        reverbGain.connect(compressor);
+        compressor.connect(ctx.destination);
+
+        return { input };
+    }
+
+    function buildImpulseResponse(ctx, seconds, decayPower) {
+        const rate = ctx.sampleRate;
+        const length = Math.floor(rate * seconds);
+        const buf = ctx.createBuffer(2, length, rate);
+        for (let ch = 0; ch < 2; ch++) {
+            const data = buf.getChannelData(ch);
+            for (let i = 0; i < length; i++) {
+                data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decayPower);
+            }
+        }
+        return buf;
+    }
+
+    function buildHammerBuffer(ctx) {
+        const length = Math.floor(ctx.sampleRate * 0.03);
+        const buf = ctx.createBuffer(1, length, ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < length; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (length / 4));
+        }
+        return buf;
     }
 
     function isAudioRunning() {
@@ -112,99 +161,110 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         return isAudioRunning();
     }
 
-    function playVoice({ freq, pc, velocity = 1 }) {
+    function playVoice({ freq, velocity = 1 }) {
         try {
             if (typeof document !== 'undefined' && document.hidden) return;
             ensureAudioContext();
-            if (!audioContext || audioContext.state !== 'running') return;
+            if (!audioContext || audioContext.state !== 'running' || !masterBus) return;
 
-            const now = audioContext.currentTime;
-            const safeFreq = typeof freq === 'number' && Number.isFinite(freq) ? freq : C4_HZ;
-
+            const ctx = audioContext;
+            const now = ctx.currentTime;
+            const f0 = typeof freq === 'number' && Number.isFinite(freq) && freq > 0 ? freq : C4_HZ;
             const vel = Math.max(0, Math.min(1, velocity));
 
-            // Output chain: tone filter -> compressor -> soft clip -> envelope -> destination
-            const out = audioContext.createGain();
-            const compressor = audioContext.createDynamicsCompressor();
-            const lp = audioContext.createBiquadFilter();
-            const shaper = audioContext.createWaveShaper();
+            // Register position 0..1 across the piano range (A0..C8)
+            const midi = 69 + 12 * Math.log2(f0 / 440);
+            const reg = Math.max(0, Math.min(1, (midi - 21) / 87));
 
-            // Brighter for higher notes; darker for lower
-            const cutoff = 2600 + (pc % 12) * 140;
-            lp.type = 'lowpass';
-            lp.frequency.setValueAtTime(cutoff, now);
-            lp.Q.setValueAtTime(0.85, now);
+            // Bass rings long, treble dies fast
+            const duration = 4.5 - reg * 3.2;
 
-            compressor.threshold.setValueAtTime(-30, now);
-            compressor.ratio.setValueAtTime(4, now);
-            compressor.attack.setValueAtTime(0.003, now);
-            compressor.release.setValueAtTime(0.18, now);
-
-            shaper.curve = shaperCurve;
-            shaper.oversample = '2x';
-
-            // Main envelope: fast attack, longer decay/sustain
+            // Two-stage envelope: sharp strike decay, then slow sing-out
+            const strikeLevel = 0.35 * (0.3 + 0.7 * vel);
+            const out = ctx.createGain();
             out.gain.setValueAtTime(0.0001, now);
-            out.gain.exponentialRampToValueAtTime(0.26 * vel, now + 0.01);
-            out.gain.exponentialRampToValueAtTime(0.0001, now + 2.4);
+            out.gain.exponentialRampToValueAtTime(strikeLevel, now + 0.004);
+            out.gain.exponentialRampToValueAtTime(strikeLevel * 0.4, now + 0.28);
+            out.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
-            // Harmonics (piano-like partials) with tiny detune
-            const partials = [
-                { ratio: 1.0, gain: 0.60 },
-                { ratio: 2.0, gain: 0.30 },
-                { ratio: 3.0, gain: 0.15 },
-                { ratio: 4.0, gain: 0.08 }
-            ];
+            // Body filter: opens with pitch and velocity, darkens as the note rings out
+            const lp = ctx.createBiquadFilter();
+            lp.type = 'lowpass';
+            lp.frequency.setValueAtTime(Math.min(f0 * (5 + vel * 5), 11000), now);
+            lp.frequency.exponentialRampToValueAtTime(Math.max(f0 * 2.5, 400), now + duration);
+            lp.Q.setValueAtTime(0.6, now);
 
-            const sum = audioContext.createGain();
-            sum.gain.setValueAtTime(1, now);
+            lp.connect(out);
+            out.connect(masterBus.input);
 
-            const oscillators = [];
-            for (const p of partials) {
-                const osc = audioContext.createOscillator();
-                const g = audioContext.createGain();
+            // Stretched (inharmonic) partials; stiffness grows toward the treble
+            const inharmonicity = 0.0001 * Math.pow(2, reg * 4);
+            const rolloff = 0.4 + 0.3 * vel; // velocity opens up the upper partials
+            const nyquist = ctx.sampleRate / 2;
 
-                // Low notes: triangle for body; high notes: sine for clarity
-                osc.type = (pc % 12) <= 6 ? 'triangle' : 'sine';
-                osc.frequency.setValueAtTime(safeFreq * p.ratio, now);
-                osc.detune.setValueAtTime((Math.random() - 0.5) * 3, now);
-                g.gain.setValueAtTime(p.gain, now);
-                osc.connect(g);
-                g.connect(sum);
-                oscillators.push(osc);
+            const partials = [];
+            let ampTotal = 0;
+            for (let n = 1; n <= 8; n++) {
+                const pf = f0 * n * Math.sqrt(1 + inharmonicity * n * n);
+                if (n > 1 && pf > nyquist * 0.45) break;
+                const amp = Math.pow(rolloff, n - 1);
+                partials.push({ n, pf, amp });
+                ampTotal += amp;
             }
 
-            // Hammer transient: short noise burst
-            const noiseBuf = audioContext.createBuffer(1, Math.floor(audioContext.sampleRate * 0.04), audioContext.sampleRate);
-            const data = noiseBuf.getChannelData(0);
-            for (let i = 0; i < data.length; i++) {
-                data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (data.length / 3));
+            const sources = [];
+            for (const { n, pf, amp } of partials) {
+                const g = ctx.createGain();
+                const level = amp / ampTotal;
+                // Higher partials decay faster, so the tone darkens over time
+                const partialDecay = Math.max(duration / (1 + 0.9 * (n - 1)), 0.15);
+                g.gain.setValueAtTime(level, now);
+                g.gain.exponentialRampToValueAtTime(level * 0.001, now + partialDecay);
+                g.connect(lp);
+
+                // Fundamental gets a detuned unison pair (slow beating, like multi-string notes)
+                const detunes = n === 1 ? [-1.6, 1.6] : [(Math.random() - 0.5) * 2.4];
+                for (const cents of detunes) {
+                    const osc = ctx.createOscillator();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(pf, now);
+                    osc.detune.setValueAtTime(cents, now);
+                    const og = ctx.createGain();
+                    og.gain.value = 1 / detunes.length;
+                    osc.connect(og);
+                    og.connect(g);
+                    sources.push(osc);
+                }
             }
-            const noise = audioContext.createBufferSource();
-            noise.buffer = noiseBuf;
-            const bp = audioContext.createBiquadFilter();
+
+            // Hammer strike: short filtered noise burst, brighter and louder when hit harder
+            const noise = ctx.createBufferSource();
+            noise.buffer = hammerBuffer;
+            const bp = ctx.createBiquadFilter();
             bp.type = 'bandpass';
-            bp.frequency.setValueAtTime(2500, now);
-            bp.Q.setValueAtTime(1.5, now);
-            const ng = audioContext.createGain();
-            ng.gain.setValueAtTime(0.08 * vel, now);
-            ng.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
+            bp.frequency.setValueAtTime(Math.max(1200, Math.min(f0 * 9, 7500)), now);
+            bp.Q.setValueAtTime(0.9, now);
+            const ng = ctx.createGain();
+            ng.gain.setValueAtTime(0.01 + 0.1 * vel * vel, now);
+            ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
             noise.connect(bp);
             bp.connect(ng);
-            ng.connect(sum);
+            ng.connect(lp);
 
-            sum.connect(lp);
-            lp.connect(compressor);
-            compressor.connect(shaper);
-            shaper.connect(out);
-            out.connect(audioContext.destination);
-
-            for (const osc of oscillators) {
-                osc.start(now);
-                osc.stop(now + 2.6);
+            const stopAt = now + duration + 0.05;
+            for (const src of sources) {
+                src.start(now);
+                src.stop(stopAt);
             }
             noise.start(now);
-            noise.stop(now + 0.03);
+            noise.stop(now + 0.035);
+
+            // Free the voice graph once the sources end
+            if (sources.length > 0) {
+                sources[0].onended = () => {
+                    try { out.disconnect(); } catch { /* already gone */ }
+                };
+            }
         } catch {
             // Ignore audio failures (e.g. blocked by browser policy)
         }
@@ -212,15 +272,14 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
 
     function playPc(pc, velocity = 1) {
         const freq = C4_HZ * Math.pow(2, (pc % 12) / 12);
-        playVoice({ freq, pc, velocity });
+        playVoice({ freq, velocity });
     }
 
     function playMidiNote(midi, velocity = 1) {
         const midiNum = Number(midi);
         if (!Number.isFinite(midiNum)) return;
         const freq = 440 * Math.pow(2, (midiNum - 69) / 12);
-        const pc = ((midiNum % 12) + 12) % 12;
-        playVoice({ freq, pc, velocity });
+        playVoice({ freq, velocity });
     }
 
     function previewPitchClasses(pcs, { velocity = 0.85, intervalMs = 190 } = {}) {

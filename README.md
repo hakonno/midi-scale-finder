@@ -2,8 +2,9 @@
 
 Find the most likely **key/scale** (currently **Major/Minor only**) from either:
 
-- a dropped/uploaded `.mid` / `.midi` file, or
-- a set of notes you pick manually (click the piano), including a computer-keyboard “piano mode”.
+- a dropped/uploaded `.mid` / `.midi` file,
+- a set of notes you pick manually (click the piano), including a computer-keyboard “piano mode”, or
+- a hardware MIDI keyboard (Web MIDI; Chrome/Edge/Firefox).
 
 Live site: https://midi.hakono.me/
 
@@ -34,12 +35,12 @@ The “match %” shown in the UI means “how much of the input is inside the k
 
 ## Limitations
 
-- **Major/Minor only.** No modes, harmonic/melodic minor, blues scales, etc.
+- **Major/Minor only.** No modes, blues scales, etc. The raised 7th (leading tone) in minor gets a reduced penalty, so harmonic-minor material is detected as the right Minor key.
 - **Relative major/minor can flip** (same pitch set). The weighted scoring tries to pick a tonic.
 - **Key changes/modulation**: it assumes one key for the whole file.
-- MIDI with lots of chromatic passing tones, borrowed chords, or dense percussion can confuse it (it currently doesn’t ignore drums).
+- MIDI with lots of chromatic passing tones or borrowed chords can confuse it. Percussion tracks (MIDI channel 10) are ignored.
 
-On a small labeled set (older internal test run), it reached about **~88% top-1 accuracy**. More testing should be done.
+On the 640-file labeled set it reaches **86.6% top-1** (98.4% top-2) for Major/Minor, and **100% top-1** on 300 harmonic-minor progressions. More testing on real songs should be done.
 
 ## Contributing
 
@@ -63,8 +64,11 @@ Then open `http://localhost:8000/`.
 
 - `test.html` is an internal evaluator (and optional in-browser grid search tuner).
 	- Filenames must contain key + mode, e.g. `C_Major.mid` or `G#Minor_MyChords.mid`.
-- `tune.js` is a Node script used to grid-search the scoring multipliers offline.
+- `tune.js` is a Node script used to grid-search the scoring multipliers offline:
 
-### TODO
+```bash
+npm install
+node tune.js <path-to-midi-folder>
+```
 
-- Allow connecting external MIDI keyboards as an input source (support Web MIDI API).
+The folder must contain `.mid` files named like `C_Major_...mid` / `A_Minor_...mid`. The original training set is the Major/Minor files from https://github.com/BenLeon2001/Free-Chord-Progressions (640 files).

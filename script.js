@@ -24,6 +24,8 @@ const pianoMount = document.getElementById('pianoMount');
 
 const keyboardModeToggle = document.getElementById('keyboardModeToggle');
 const keyboardInputMode = document.getElementById('keyboardInputMode');
+const midiConnectBtn = document.getElementById('midiConnectBtn');
+const midiStatus = document.getElementById('midiStatus');
 
 // Baseline (from MIDI) and current selection state
 let midiBaselineNoteWeights = null; // Map<pitchClass, duration>
@@ -41,6 +43,9 @@ let lastAppliedScale = null; // { root:number, mode:string } | null
 let keyboardModeEnabled = false;
 let keyboardMode = 'record'; // 'record' | 'live'
 const heldKeyboardCodes = new Set();
+// Hardware MIDI input (Web MIDI). Held notes as MIDI numbers.
+const heldMidiNotes = new Set();
+let midiAccess = null;
 let showAllScales = false;
 
 const SCALE_INTERVALS = {
@@ -117,6 +122,9 @@ function getHeldPitchClasses() {
         if (!Number.isFinite(midi)) continue;
         pcs.add(((midi % 12) + 12) % 12);
     }
+    for (const midi of heldMidiNotes) {
+        pcs.add(((midi % 12) + 12) % 12);
+    }
     return pcs;
 }
 
@@ -129,6 +137,11 @@ function syncPressedFromKeyboard() {
 
 function hasMidiEmphasisData() {
     return !!(midiBaselineNoteWeights && midiBaselineNoteWeights.size > 0);
+}
+
+// Live (held) input can come from the QWERTY keyboard or a MIDI device
+function isLiveInputActive() {
+    return (keyboardModeEnabled || heldMidiNotes.size > 0) && keyboardMode === 'live';
 }
 
 function isSameKey(a, b) {
@@ -248,7 +261,7 @@ function updateOutputFromSelection(pitchClassesOverride) {
         activePcs = new Set([...pitchClassesOverride].map(Number));
     } else if (Array.isArray(pitchClassesOverride)) {
         activePcs = new Set(pitchClassesOverride.map(Number));
-    } else if (keyboardModeEnabled && keyboardMode === 'live') {
+    } else if (isLiveInputActive()) {
         activePcs = getHeldPitchClasses();
     } else {
         activePcs = selectedPitchClasses;
@@ -304,7 +317,7 @@ function updateOutputFromSelection(pitchClassesOverride) {
     }
 
     const totalCandidates = fullCandidates.length;
-    const isLive = keyboardModeEnabled && keyboardMode === 'live';
+    const isLive = isLiveInputActive();
     const isScrollEnabled = !!showAllScales;
 
     // Keep the full candidate list; the UI reserves a fixed area and hides overflow.
@@ -859,6 +872,7 @@ function cleanupTransientInputState() {
     // BFCache/tab restore can skip keyup events and keep JS state alive.
     // Reset transient held/pressed state and stop any queued previews/audio.
     heldKeyboardCodes.clear();
+    heldMidiNotes.clear();
     if (piano && typeof piano.setPressedPitchClasses === 'function') {
         piano.setPressedPitchClasses([]);
     }
@@ -978,3 +992,103 @@ window.addEventListener('keyup', (e) => {
         updateOutputFromSelection(getHeldPitchClasses());
     }
 });
+
+// --- Web MIDI: hardware keyboard input ---
+// Mirrors the QWERTY keyboard flow: note-on behaves like keydown (sound +
+// record/live selection), note-off like keyup. Uses the same Record/Live mode.
+
+function midiNoteOn(midi, velocity) {
+    heldMidiNotes.add(midi);
+    syncPressedFromKeyboard();
+
+    lastAppliedScale = null;
+    if (piano && typeof piano.unlockAudioFromGesture === 'function') {
+        piano.unlockAudioFromGesture();
+    }
+    if (piano && typeof piano.playMidiNote === 'function') {
+        piano.playMidiNote(midi, Math.max(0.2, velocity));
+    }
+
+    const pc = ((midi % 12) + 12) % 12;
+    if (keyboardMode === 'record') {
+        if (!selectedPitchClasses.has(pc)) {
+            const next = new Set(selectedPitchClasses);
+            next.add(pc);
+            applySelection([...next], { silent: true, recordHistory: true });
+        }
+    } else {
+        updateOutputFromSelection(getHeldPitchClasses());
+    }
+}
+
+function midiNoteOff(midi) {
+    heldMidiNotes.delete(midi);
+    syncPressedFromKeyboard();
+
+    if (keyboardMode === 'live') {
+        updateOutputFromSelection(getHeldPitchClasses());
+    }
+}
+
+function handleMidiMessage(e) {
+    const data = e.data;
+    if (!data || data.length < 3) return;
+    const command = data[0] & 0xf0;
+    const note = data[1];
+    const velocity = data[2];
+
+    if (command === 0x90 && velocity > 0) {
+        midiNoteOn(note, velocity / 127);
+    } else if (command === 0x80 || (command === 0x90 && velocity === 0)) {
+        midiNoteOff(note);
+    }
+}
+
+function updateMidiInputs() {
+    if (!midiAccess) return;
+
+    const names = [];
+    for (const input of midiAccess.inputs.values()) {
+        input.onmidimessage = handleMidiMessage;
+        names.push(input.name || 'MIDI device');
+    }
+
+    if (names.length > 0) {
+        midiStatus.textContent = `Connected: ${names.join(', ')}`;
+        midiConnectBtn.textContent = 'MIDI connected';
+        midiConnectBtn.disabled = true;
+    } else {
+        midiStatus.textContent = 'No MIDI device found. Plug one in; it will connect automatically.';
+        midiConnectBtn.textContent = 'MIDI enabled';
+        midiConnectBtn.disabled = true;
+
+        // A disconnected device never sends its note-offs: unstick held notes.
+        if (heldMidiNotes.size > 0) {
+            heldMidiNotes.clear();
+            syncPressedFromKeyboard();
+            if (keyboardMode === 'live') updateOutputFromSelection(getHeldPitchClasses());
+        }
+    }
+}
+
+if (midiConnectBtn && midiStatus) {
+    if (typeof navigator === 'undefined' || !navigator.requestMIDIAccess) {
+        midiConnectBtn.disabled = true;
+        midiStatus.textContent = 'Web MIDI is not supported in this browser (try Chrome, Edge, or Firefox).';
+    } else {
+        midiConnectBtn.addEventListener('click', async () => {
+            // The click is a real user gesture: unlock audio right away so the
+            // first hardware note can make sound.
+            if (piano && typeof piano.unlockAudioFromGesture === 'function') {
+                piano.unlockAudioFromGesture();
+            }
+            try {
+                midiAccess = await navigator.requestMIDIAccess();
+                midiAccess.onstatechange = updateMidiInputs;
+                updateMidiInputs();
+            } catch {
+                midiStatus.textContent = 'MIDI access was denied. Check the browser permission and try again.';
+            }
+        });
+    }
+}

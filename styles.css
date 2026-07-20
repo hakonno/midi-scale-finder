@@ -152,6 +152,15 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
     color: var(--text);
 }
 
+.midi-controls {
+    justify-content: flex-start;
+}
+
+.midi-status {
+    color: var(--muted);
+    font-size: 0.95em;
+}
+
 .kb-figure {
     margin: 12px 0 10px;
     text-align: center;
