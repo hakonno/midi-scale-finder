@@ -13,6 +13,8 @@ const fileInput = document.getElementById("fileInput");
 const fileName = document.getElementById("fileName");
 const scaleOutput = document.getElementById("scaleOutput");
 const scaleTitle = document.getElementById("scaleTitle");
+const scaleSummary = document.getElementById("scaleSummary");
+const scaleSummaryLabel = document.getElementById("scaleSummaryLabel");
 const clearBtn = document.getElementById('clearBtn');
 const resetToMidiBtn = document.getElementById('resetToMidiBtn');
 const resetAllBtn = document.getElementById('resetAllBtn');
@@ -241,12 +243,9 @@ function buildNoteWeightsForPitchClasses(pitchClassesSet) {
 }
 
 function updateTitle(best) {
-    if (!best) {
-        scaleTitle.hidden = true;
-        scaleTitle.textContent = '';
-        return;
-    }
-    scaleTitle.hidden = false;
+    scaleSummary.hidden = !best;
+    if (!best) return;
+    scaleSummaryLabel.textContent = lastAppliedScale ? 'Selected scale' : 'Best guess';
     scaleTitle.textContent = `${midiToNoteName(best.root)} ${best.name}`;
 }
 
@@ -277,7 +276,6 @@ function updateOutputFromSelection(pitchClassesOverride) {
     if (usedNotes.length === 0) {
         scaleOutput.innerHTML = `
             <div class="result-block analysis-empty">
-                <h3>No notes to analyze yet</h3>
                 <p>Click the piano keys or open a MIDI file to find matching scales.</p>
             </div>
         `;
@@ -337,14 +335,12 @@ function updateOutputFromSelection(pitchClassesOverride) {
     let headerText;
     if (lastAppliedScale) {
         headerText = 'Selected scale and related keys';
+    } else if (isLive) {
+        headerText = `Matches for held notes · ${totalCandidates}`;
+    } else if (simpleMatches.length > 0) {
+        headerText = `Keys containing all notes · ${totalCandidates}`;
     } else {
-        if (isLive) {
-            headerText = `Matches for held notes · ${totalCandidates}`;
-        } else {
-            headerText = (simpleMatches.length > 0)
-                ? `Keys containing all notes · ${candidates.length}`
-                : `Closest major and minor keys · ${candidates.length}`;
-        }
+        headerText = `Closest major and minor keys · ${totalCandidates}`;
     }
 
     const scalesHtml = buildPossibleScalesSection(
@@ -365,10 +361,14 @@ function updateOutputFromSelection(pitchClassesOverride) {
 
     scaleOutput.innerHTML = `
         <div class="result-block">
-            <ul class="notes-list" aria-label="Notes being analyzed">${noteChips}</ul>
-            <h3 class="possible-scales-header">${headerText}</h3>
-            ${scalesHtml}
+            <p class="app-subtext">Notes analyzed</p>
+            <ul class="notes-list analysis-notes" aria-label="Notes being analyzed">${noteChips}</ul>
             ${whyHtml}
+            <div class="analysis-results-heading">
+                <h3 class="possible-scales-header">${headerText}</h3>
+                <p class="app-subtext">Select a key to put its notes on the piano, or press Play to hear it.</p>
+            </div>
+            ${scalesHtml}
         </div>
     `;
 
@@ -528,6 +528,8 @@ scaleOutput.addEventListener('click', (e) => {
     lastAppliedScale = { root, mode };
     showAllScales = false;
     applySelection(pcs, { silent: true, recordHistory: true });
+    scaleOutput.querySelector(`.scale-item-btn[data-scale-root="${root}"][data-scale-mode="${mode}"]`)
+        ?.focus({ preventScroll: true });
 });
 
 function playScalePreview(button) {
