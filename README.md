@@ -84,3 +84,14 @@ as needed. The visible octave starts loading in the background when the
 page opens. Playback waits for a pending recording and uses a synthesized
 voice if the recording is unavailable. MIDI note releases and sustain pedal messages
 control how long the sound rings.
+
+
+## Piano roll screenshots
+
+Paste, drop, or open a PNG, JPEG, or WebP of an FL Studio piano roll. Include
+the left piano keyboard and at least one octave of rows. The browser uses
+the black-key pattern to identify pitches and the width of colored blocks
+to estimate relative note lengths. Gray ghost notes are omitted. The image
+stays local and the detected notes are editable. Key estimates apply to the
+visible notes. Other DAW layouts, grayscale notes, and screenshots without
+the piano keyboard are outside the current detector's scope.

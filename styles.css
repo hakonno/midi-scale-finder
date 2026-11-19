@@ -697,3 +697,6 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
 @media (max-width: 560px) {
     .page-header { grid-template-columns: minmax(0, 1fr); }
 }
+
+.import-status { margin: 6px 0 0; }
+.import-status:empty { display: none; }
