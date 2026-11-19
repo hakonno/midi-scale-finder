@@ -5,11 +5,11 @@ const WHITE_KEY_MIN = 125;
 const MAX_IMAGE_EDGE = 2400;
 const pitchClass = note => ((note % 12) + 12) % 12;
 
-function blackKeyRuns(lightness, x, height) {
+function blackKeyRuns(isBlackKey, lightness, x, height) {
     const runs = [];
     let start = -1;
     for (let y = 0; y <= height; y++) {
-        if (y < height && lightness(x, y) < BLACK_KEY_MAX) {
+        if (y < height && isBlackKey(x, y)) {
             if (start < 0) start = y;
         } else if (start >= 0) {
             const size = y - start;
@@ -33,13 +33,22 @@ function traceKeyboard(runs, start, firstPitch) {
     let offset = 0;
 
     for (let i = start + 1; i < runs.length; i++) {
-        let interval = 1;
-        while (!BLACK_PITCHES.has(pitchClass(pitch - interval))) interval++;
-        const previous = rows.at(-1);
         const run = runs[i];
-        const measuredStep = (run.center - previous.center) / interval;
-        if (Math.abs(measuredStep - step) > step * 0.22
-            || Math.abs(run.size - measuredStep) > measuredStep * 0.35) break;
+        const distance = run.center - rows.at(-1).center;
+        let interval = 0;
+        let measuredStep;
+        // A highlighted key can hide a black stripe or touch its neighboring stripe.
+        // Bridge a short gap only when the next observed row still fits the pitch grid.
+        for (let blackKeys = 0; blackKeys < 3; blackKeys++) {
+            do { interval++; } while (!BLACK_PITCHES.has(pitchClass(pitch - interval)));
+            const candidateStep = distance / interval;
+            if (Math.abs(candidateStep - step) <= step * 0.16
+                && Math.abs(run.size - candidateStep) <= candidateStep * 0.35) {
+                measuredStep = candidateStep;
+                break;
+            }
+        }
+        if (!measuredStep) break;
 
         offset += interval;
         pitch = pitchClass(pitch - interval);
@@ -53,11 +62,11 @@ function traceKeyboard(runs, start, firstPitch) {
     return { firstPitch, origin, step, offset, rows: rows.length };
 }
 
-function findKeyboard(lightness, width, height) {
+function findKeyboard(isBlackKey, lightness, width, height) {
     let best = null;
     const searchRight = Math.min(Math.floor(width / 3), 640);
     for (let x = 0; x < searchRight; x += 2) {
-        const runs = blackKeyRuns(lightness, x, height);
+        const runs = blackKeyRuns(isBlackKey, lightness, x, height);
         for (let start = 0; start <= runs.length - MIN_BLACK_KEYS; start++) {
             for (const pitch of BLACK_PITCHES) {
                 const candidate = traceKeyboard(runs, start, pitch);
@@ -90,7 +99,7 @@ function findGridLeft(keyboard, lightness, width) {
 function rowNoteWidth(data, width, gridLeft, center, step) {
     const inset = Math.max(1, Math.round(step * 0.2));
     const sampleRows = [center - inset, center, center + inset];
-    const minWidth = Math.max(3, Math.round(step * 0.25));
+    const minWidth = Math.max(4, Math.round(step * 0.25));
     let run = 0;
     let total = 0;
     for (let x = gridLeft; x <= width; x++) {
@@ -117,7 +126,14 @@ export function detectPianoRollNotes({ data, width, height }) {
         const i = (y * width + x) * 4;
         return (data[i] + data[i + 1] + data[i + 2]) / 3;
     };
-    const keyboard = findKeyboard(lightness, width, height);
+    const isBlackKey = (x, y) => {
+        if (lightness(x, y) < BLACK_KEY_MAX) return true;
+        const i = (y * width + x) * 4;
+        const [red, green, blue] = [data[i], data[i + 1], data[i + 2]];
+        // FL Studio paints a currently playing black key orange during playback.
+        return red >= 145 && red - green >= 55 && green - blue >= 22;
+    };
+    const keyboard = findKeyboard(isBlackKey, lightness, width, height);
     const gridLeft = keyboard && findGridLeft(keyboard, lightness, width);
     if (!keyboard || gridLeft === null || gridLeft - keyboard.x < 8 || width - gridLeft < 32) {
         throw new Error('Could not find the piano keys. Crop to the FL Studio piano roll and include at least one octave of the keyboard on the left.');
@@ -129,8 +145,10 @@ export function detectPianoRollNotes({ data, width, height }) {
         const center = Math.round(keyboard.origin + row * keyboard.step);
         const pitch = pitchClass(keyboard.firstPitch - row);
         if (center - keyboard.step * 0.25 < 0 || center + keyboard.step * 0.25 >= height) continue;
-        const tone = lightness(keyboard.x, center);
-        if (BLACK_PITCHES.has(pitch) ? tone >= BLACK_KEY_MAX : tone < WHITE_KEY_MIN) continue;
+        if (row < 0 || row > keyboard.offset) {
+            const tone = lightness(keyboard.x, center);
+            if (BLACK_PITCHES.has(pitch) ? !isBlackKey(keyboard.x, center) : tone < WHITE_KEY_MIN) continue;
+        }
 
         const pixels = rowNoteWidth(data, width, gridLeft, center, keyboard.step);
         if (pixels > 0) noteWeights.set(pitch, (noteWeights.get(pitch) ?? 0) + pixels);
