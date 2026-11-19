@@ -3,8 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Find major and minor keys by uploading a MIDI file or playing notes on an interactive piano.">
-    <title>MIDI Key Finder</title>
+    <title>MIDI Key Finder &amp; FL Studio Piano Roll Key Detector</title>
+    <meta name="description" content="Find the key of an FL Studio piano roll screenshot, a MIDI file, or notes you play. Compare major and minor scales and hear them on the online piano.">
+    <link rel="canonical" href="https://midi.hakono.me/">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="MIDI Key Finder">
+    <meta property="og:title" content="MIDI Key Finder &amp; FL Studio Piano Roll Key Detector">
+    <meta property="og:description" content="Find the key of an FL Studio piano roll screenshot, a MIDI file, or notes you play. Compare major and minor scales and hear them on the online piano.">
+    <meta property="og:url" content="https://midi.hakono.me/">
+    <meta name="twitter:card" content="summary">
     <link rel="stylesheet" href="./styles.css">
     <script defer src="./Midi.js"></script>
 </head>
@@ -13,7 +20,8 @@
         <header class="page-header">
             <div>
                 <h1>MIDI Key Finder</h1>
-                <p>Find matching major and minor keys from a MIDI file or the notes you play.</p>
+                <p>Find the key of an FL Studio piano roll screenshot, a MIDI file, or notes you play.</p>
+                <p><a href="#fl-studio-piano-roll">How to import an FL Studio screenshot</a></p>
             </div>
             <div class="file-control">
                 <button class="panel file-button" id="dropzone" type="button">
@@ -89,30 +97,27 @@
             </div>
         </div>
 
-        <section class="panel" aria-labelledby="about-heading">
-            <h2 id="about-heading">What this does</h2>
-            <p>Finds likely Major/Minor keys from either a MIDI file <em>or</em> a set of notes you select (mouse/touch/keyboard).</p>
-            <h2>Import a piano roll screenshot</h2>
-            <p>Paste with Ctrl+V or ⌘V, or open a PNG, JPEG, or WebP. For FL Studio, crop to the note grid and include at least one octave of the piano on the left. Colored notes count and gray ghost notes are skipped. Review the detected notes on the piano. The image stays in your browser.</p>
-            <h2>Key vs scale</h2>
-            <p>A <strong>scale</strong> is a set of notes (like A natural minor). A <strong>key</strong> usually means a scale <em>plus</em> a “home” note (the tonic) and a musical context. This tool lists Major/Minor <strong>keys</strong> (tonic + mode) that best fit your selected notes.</p>
-            <h2>How results are shown</h2>
-            <p>You’ll see possible Major/Minor keys for the notes you provided, ranked with the best guess highlighted. If a MIDI file is uploaded, the “Why the best guess?” dropdown explains the choice using which notes are most emphasized in the file.</p>
-            <h2>What is “emphasis”?</h2>
-            <p>In this app, “emphasis” means which notes account for the most playing time in the MIDI file. If several keys match equally well, the list order uses this as a tie-break: the tool prefers keys where the “home” note and other important notes sound for longer. (This only applies when a MIDI file is uploaded.)</p>
-            <h2>Keyboard mode</h2>
-            <p>Keyboard mode lets you play notes using your computer keyboard (with sound). It maps keys by physical key position (so it works across different keyboard layouts).</p>
-            <h2>Keyboard input modes</h2>
-            <p><strong>Record (accumulate)</strong> adds notes you play to your selection, so you can build a note set. <strong>Live (held)</strong> shows scales based on the notes you are holding down right now.</p>
-            <h2>MIDI keyboard input</h2>
-            <p>Click <strong>Connect MIDI device</strong> to play notes from a hardware MIDI keyboard. It uses the same Record/Live input modes as keyboard mode. Works in Chrome, Edge, and Firefox (Safari does not support Web MIDI).</p>
-            <h2>What does "tonic" mean?</h2>
-            <p>The tonic is the "home" note—the pitch everything feels drawn back to. Knowing the tonic tells you the song's key, so you know which chords and melodies fit naturally.</p>
-            <h2>Keyboard mapping</h2>
-            <p>
-                Keyboard mode lets you play notes using your computer keyboard. The mapping is shown in the image below and matches the
-                common “computer keyboard piano” layout used in many DAWs (like FL Studio) and music tools.
-            </p>
+        <section class="panel" aria-labelledby="fl-studio-piano-roll">
+            <h2 id="fl-studio-piano-roll">How to find the key of an FL Studio piano roll</h2>
+            <ol>
+                <li>Open the pattern in FL Studio’s Piano Roll. Capture the colored notes and at least one octave of the piano keyboard on the left.</li>
+                <li>Paste the screenshot here with Ctrl+V or Command+V, or open or drop a PNG, JPEG, or WebP file.</li>
+                <li>Check the detected notes on the piano and click keys to correct them. Compare the best guess with the other major and minor keys, and use <strong>Play</strong> to hear a candidate scale.</li>
+            </ol>
+            <p>The detector reads the visible colored note blocks, uses their widths to estimate note lengths, and skips gray ghost notes. Screenshot detection is designed for the FL Studio layout. If you have a MIDI export, you can open that here too. Files and screenshots are processed in your browser.</p>
+        </section>
+
+        <section class="panel" aria-labelledby="midi-file-key">
+            <h2 id="midi-file-key">Find the key of a MIDI file</h2>
+            <p>Open or drop a .mid or .midi file to estimate the key of a melody, chord progression, or arrangement. Notes that play longer carry more weight, and MIDI percussion is skipped. Open <strong>Why the best guess?</strong> to see which notes influenced the result.</p>
+            <h3>How to read the results</h3>
+            <p>The key finder ranks major and minor keys by how well they fit the input. Match percentage measures how much of the input fits the scale, by note duration for MIDI files and by note count for manually selected notes. Relative keys such as C major and A minor share the same scale notes, so both can fit. The tool estimates one key for the input as a whole.</p>
+        </section>
+
+        <section class="panel" aria-labelledby="keyboard-key-finder">
+            <h2 id="keyboard-key-finder">Find a scale from notes you play</h2>
+            <p>Click or tap the online piano to select notes. Open <strong>Keyboard &amp; MIDI</strong> to play with your computer keyboard or connect a hardware MIDI keyboard in a browser that supports Web MIDI.</p>
+            <p>Use <strong>Record notes</strong> to collect notes across a melody or chord progression. Use <strong>Held notes</strong> to see matches for the notes you’re holding. The computer keyboard mapping uses physical key positions.</p>
             <figure class="kb-figure">
                 <img src="qwerty_keyboard.jpg" width="876" height="342" loading="lazy"
                      alt="Keyboard to piano mapping. Lower row Z–/ maps C4–E5 (whites), with S D G H J as C♯4 D♯4 F♯4 G♯4 A♯4. Upper row Q–P maps C5–E6." />
