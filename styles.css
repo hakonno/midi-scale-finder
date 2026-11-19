@@ -31,8 +31,10 @@ p { margin: 0 0 10px; color: var(--muted); }
     margin-bottom: 18px;
 }
 #dropzone {
-    border: 3px dashed var(--border);
-    padding: 46px;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    padding: 24px 16px;
+    cursor: pointer;
     text-align: center;
     margin-bottom: 20px;
     background: #fff;
@@ -83,8 +85,6 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
     min-height: 120px;
     margin-bottom: 18px;
     --scale-row-h: 62px;
-    --scale-row-gap: 12px;
-    --scales-fixed-h: calc((7.6 * var(--scale-row-h)));;
 }
 
 .app-layout {
@@ -238,7 +238,7 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
     position: absolute;
     top: 0;
     left: 0;
-    width: 62%;
+    width: 100%;
     height: 100%;
     pointer-events: none;
 }
@@ -247,14 +247,15 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
     position: absolute;
     left: 0;
     height: var(--black-h);
-    width: calc(100% - 10px);
+    width: 100%;
     background: #111;
     border-color: rgba(255, 255, 255, 0.12);
     border-radius: 7px;
     color: #fff;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
+    padding-left: 12px;
     pointer-events: all;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
@@ -289,6 +290,12 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
 }
 
+.vpiano-white-key .vpiano-label {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+}
+
 .vpiano-label {
     display: flex;
     flex-direction: column;
@@ -297,7 +304,9 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
 }
 
 .vpiano-black-key .vpiano-label {
-    align-items: center;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
 }
 
 .vpiano-note {
@@ -348,14 +357,8 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
     width: 100%;
 }
 
-.scale-list-wrap--fixed {
-    height: var(--scales-fixed-h);
-    overflow: hidden;
-    padding-right: 2px;
-    border-radius: 0px;
-}
-
 .scale-list-wrap--scroll {
+    max-height: 32rem;
     overflow: auto;
 }
 
@@ -396,7 +399,7 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
 .scale-footer {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: 10px;
 }
 
@@ -406,6 +409,9 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
 }
 
 .scale-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
     background: var(--panel);
     padding: 0;
     border-radius: 8px;
@@ -432,7 +438,7 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
 
 .scale-item-btn:focus-visible {
     outline: 2px solid var(--accent);
-    outline-offset: 2px;
+    outline-offset: -3px;
     border-radius: 8px;
 }
 
@@ -605,4 +611,54 @@ button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; transform
 .mode-desc {
     color: var(--muted);
     font-size: 0.9em;
+}
+
+#dropzone:hover { border-color: var(--accent); }
+
+.dropzone-detail {
+    font-size: 0.88em;
+    margin-top: 4px;
+}
+
+.piano-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.piano-volume {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.875rem;
+    color: var(--muted);
+}
+
+.piano-volume input {
+    width: 84px;
+    accent-color: var(--accent);
+}
+
+.scale-play {
+    margin: 4px 6px 4px 0;
+    min-height: 44px;
+    border-radius: 6px;
+    color: var(--accent);
+}
+
+.sample-credit { margin-top: 6px; color: var(--muted); }
+
+:where(button, input, select, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+    body { padding: 24px 12px 40px; }
+    #output { padding: 12px; }
+    .app-layout { grid-template-columns: minmax(0, 1fr); }
+    .scale-line { flex-wrap: wrap; }
+    .scale-item-btn--compact { flex-wrap: wrap; }
 }
