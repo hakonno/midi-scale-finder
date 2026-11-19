@@ -11,7 +11,6 @@ import { createVerticalPiano } from './pianoView.js';
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("fileInput");
 const fileName = document.getElementById("fileName");
-const output = document.getElementById("output");
 const scaleOutput = document.getElementById("scaleOutput");
 const scaleTitle = document.getElementById("scaleTitle");
 const clearBtn = document.getElementById('clearBtn');
@@ -243,9 +242,11 @@ function buildNoteWeightsForPitchClasses(pitchClassesSet) {
 
 function updateTitle(best) {
     if (!best) {
-        scaleTitle.textContent = 'Notes';
+        scaleTitle.hidden = true;
+        scaleTitle.textContent = '';
         return;
     }
+    scaleTitle.hidden = false;
     scaleTitle.textContent = `${midiToNoteName(best.root)} ${best.name}`;
 }
 
@@ -275,9 +276,9 @@ function updateOutputFromSelection(pitchClassesOverride) {
 
     if (usedNotes.length === 0) {
         scaleOutput.innerHTML = `
-            <div class="result-block">
-                <div class="possible-scales-header">Possible scales</div>
-                <p>Select one or more notes to see possible Major/Minor scales.</p>
+            <div class="result-block analysis-empty">
+                <h3>No notes to analyze yet</h3>
+                <p>Click the piano keys or open a MIDI file to find matching scales.</p>
             </div>
         `;
         if (keyboardModeEnabled) {
@@ -287,7 +288,7 @@ function updateOutputFromSelection(pitchClassesOverride) {
         } else {
             selectionHint.textContent = midiBaselinePitchClasses
                 ? 'Select/deselect notes to refine the MIDI.'
-                : 'Upload MIDI or start selecting notes to find a key/scale.';
+                : '';
         }
         updateTitle(null);
         updateResetButtonState();
@@ -335,15 +336,14 @@ function updateOutputFromSelection(pitchClassesOverride) {
 
     let headerText;
     if (lastAppliedScale) {
-        const selectedLabel = `${midiToNoteName(lastAppliedScale.root)} ${lastAppliedScale.mode}`;
-        headerText = `Selected key: ${selectedLabel}`;
+        headerText = 'Selected scale and related keys';
     } else {
         if (isLive) {
-            headerText = `Possible keys (held notes): (${totalCandidates})`;
+            headerText = `Matches for held notes · ${totalCandidates}`;
         } else {
             headerText = (simpleMatches.length > 0)
-                ? `Possible keys (contain all selected notes): (${candidates.length})`
-                : `Closest Major/Minor keys: (${candidates.length})`;
+                ? `Keys containing all notes · ${candidates.length}`
+                : `Closest major and minor keys · ${candidates.length}`;
         }
     }
 
@@ -359,9 +359,14 @@ function updateOutputFromSelection(pitchClassesOverride) {
     );
     const whyHtml = (lastAppliedScale || !showEmphasis) ? '' : buildWhyDetails(best, noteWeights);
 
+    const noteChips = usedNotes
+        .map(pc => `<li class="note-chip">${midiToNoteName(pc)}</li>`)
+        .join('');
+
     scaleOutput.innerHTML = `
         <div class="result-block">
-            <div class="possible-scales-header">${headerText}</div>
+            <ul class="notes-list" aria-label="Notes being analyzed">${noteChips}</ul>
+            <h3 class="possible-scales-header">${headerText}</h3>
             ${scalesHtml}
             ${whyHtml}
         </div>
@@ -373,8 +378,8 @@ function updateOutputFromSelection(pitchClassesOverride) {
             : 'Keyboard mode (Record): play notes to add them; Clear to start over.';
     } else {
         selectionHint.textContent = midiBaselinePitchClasses
-            ? 'Select/deselect notes; scales update instantly.'
-            : 'Manual mode: select notes; scales update instantly.';
+            ? 'Adjust the notes to refine the MIDI analysis.'
+            : 'Click a piano key to add or remove it.';
     }
     if (showEmphasis || lastAppliedScale) {
         updateTitle(bestForTitle);
@@ -399,7 +404,7 @@ function processFile(file) {
         return;
     }
     
-    fileName.textContent = `Uploaded file: ${file.name}`;
+    fileName.textContent = file.name;
     show(fileName);
 
     const reader = new FileReader();
@@ -561,14 +566,6 @@ dropzone.addEventListener("drop", (event) => {
 // Handle click to open file picker
 dropzone.addEventListener("click", () => {
     fileInput.click();
-});
-
-// Handle keyboard activation (Enter or Space)
-dropzone.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        fileInput.click();
-    }
 });
 
 // Handle file selection from input
