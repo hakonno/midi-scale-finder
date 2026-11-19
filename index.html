@@ -4,70 +4,85 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Find major and minor keys by uploading a MIDI file or playing notes on an interactive piano.">
-    <title>MIDI Key Finder - Find a key from MIDI file or notes</title>
-    <script src="Midi.js"></script>
+    <title>MIDI Key Finder</title>
     <link rel="stylesheet" href="./styles.css">
+    <script defer src="./Midi.js"></script>
 </head>
 <body>
     <main class="page">
-        <h1>MIDI Key Finder</h1>
-        <p class="muted">Find matching major and minor keys from a MIDI file or the notes you play.</p>
-
-        <div id="dropzone" class="panel" role="button" tabindex="0" aria-label="Drop MIDI file here or click to select file">
-            <div id="dropzoneContent">
-                <div><strong>Choose a MIDI file</strong>
-                <div class="dropzone-detail">Or drop a .mid or .midi file here</div></div>
-                <div id="fileName" class="file-name hidden"></div>
+        <header class="page-header">
+            <div>
+                <h1>MIDI Key Finder</h1>
+                <p>Find matching major and minor keys from a MIDI file or the notes you play.</p>
             </div>
-            <input type="file" id="fileInput" accept=".mid,.midi" style="display: none;" aria-label="Choose MIDI file">
-        </div>
-        <div id="output" role="region" aria-label="Analysis results">
+            <div class="file-control">
+                <button class="panel file-button" id="dropzone" type="button">
+                    <span class="file-action">Open MIDI file</span>
+                    <span class="dropzone-detail">or drop a .mid or .midi here</span>
+                </button>
+                <input type="file" id="fileInput" accept=".mid,.midi" hidden>
+                <div id="fileName" class="file-name hidden" aria-live="polite"></div>
+            </div>
+        </header>
+
+        <div id="output">
             <div class="app-layout">
-                <section class="app-left" aria-label="Note selection">
+                <section class="app-left" aria-labelledby="piano-heading">
                     <div class="piano-header">
-                        <h2 class="app-title" id="scaleTitle">Notes</h2>
-                        <label class="piano-volume">Volume
+                        <h2 id="piano-heading">Piano</h2>
+                        <label class="piano-volume">
+                            Volume
                             <input id="pianoVolume" type="range" min="0" max="1" step="0.01" value="0.72">
                         </label>
                     </div>
-                    <div id="pianoMount" class="piano-mount" aria-label="Piano note selector"></div>
-                    <div class="app-controls">
-                        <button id="clearBtn" type="button" disabled>Clear</button>
-                        <button id="resetToMidiBtn" type="button" disabled>Reset to MIDI</button>
-                        <button id="resetAllBtn" type="button" disabled>Reset</button>
+                    <div id="pianoMount" class="piano-mount" role="group" aria-label="Piano notes"></div>
+                    <div class="app-controls" role="group" aria-label="Note selection history">
                         <button id="undoBtn" type="button" disabled>Undo</button>
                         <button id="redoBtn" type="button" disabled>Redo</button>
+                        <button id="clearBtn" type="button" disabled>Clear notes</button>
                     </div>
-                    <div class="keyboard-controls" aria-label="Keyboard piano mode">
+                    <div class="app-controls" role="group" aria-label="MIDI file actions">
+                        <button id="resetToMidiBtn" type="button" disabled>Restore MIDI notes</button>
+                        <button id="resetAllBtn" type="button" disabled>Reset workspace</button>
+                    </div>
+
+                    <details class="input-settings">
+                        <summary>Keyboard &amp; MIDI</summary>
                         <label class="kb-toggle">
-                            <input id="keyboardModeToggle" type="checkbox" />
-                            <span>Keyboard mode</span>
+                            <input id="keyboardModeToggle" type="checkbox">
+                            Play with computer keyboard
                         </label>
-                        <label class="kb-select">
-                            <span class="kb-select-label">Input</span>
-                            <select id="keyboardInputMode" disabled aria-label="Keyboard input mode">
-                                <option value="record" selected>Record (accumulate)</option>
-                                <option value="live">Live (held)</option>
-                            </select>
-                        </label>
-                        <label class="kb-select">
-                            <span class="kb-select-label">Q plays</span>
-                            <select id="keyboardOctave" disabled>
-                                <option value="2">C2</option>
-                                <option value="3">C3</option>
-                                <option value="4">C4</option>
-                                <option value="5" selected>C5</option>
-                                <option value="6">C6</option>
-                            </select>
-                        </label>
-                    </div>
-                    <div class="keyboard-controls midi-controls" aria-label="MIDI device input">
+                        <div class="keyboard-controls keyboard-settings">
+                            <label class="kb-select">
+                                <span class="kb-select-label">Input mode</span>
+                                <select id="keyboardInputMode" disabled>
+                                    <option value="record" selected>Record notes</option>
+                                    <option value="live">Held notes</option>
+                                </select>
+                            </label>
+                            <label class="kb-select">
+                                <span class="kb-select-label">Q plays</span>
+                                <select id="keyboardOctave" disabled>
+                                    <option value="2">C2</option>
+                                    <option value="3">C3</option>
+                                    <option value="4">C4</option>
+                                    <option value="5" selected>C5</option>
+                                    <option value="6">C6</option>
+                                </select>
+                            </label>
+                        </div>
                         <button id="midiConnectBtn" type="button">Connect MIDI device</button>
-                        <span id="midiStatus" class="midi-status" aria-live="polite"></span>
-                    </div>
-                    <div class="app-subtext" id="selectionHint">Select notes to see possible scales.</div>
+                        <p id="midiStatus" class="midi-status" aria-live="polite"></p>
+                    </details>
                 </section>
-                <section class="app-right" aria-label="Scale results">
+
+                <section class="app-right analysis" aria-labelledby="analysis-heading">
+                    <h2 id="analysis-heading">Key analysis</h2>
+                    <p id="selectionHint" class="app-subtext" role="status"></p>
+                    <div id="scaleSummary" class="analysis-summary" hidden>
+                        <div id="scaleSummaryLabel" class="app-subtext"></div>
+                        <h3 id="scaleTitle"></h3>
+                    </div>
                     <div id="scaleOutput"></div>
                 </section>
             </div>
