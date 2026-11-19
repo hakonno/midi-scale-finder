@@ -1,3 +1,4 @@
+import { readPianoRollImage } from './pianoRollImage.js';
 import {
     readMidi,
     midiToNoteName,
@@ -11,6 +12,7 @@ import { createVerticalPiano } from './pianoView.js';
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("fileInput");
 const fileName = document.getElementById("fileName");
+const importStatus = document.getElementById("importStatus");
 const scaleOutput = document.getElementById("scaleOutput");
 const scaleTitle = document.getElementById("scaleTitle");
 const scaleSummary = document.getElementById("scaleSummary");
@@ -29,10 +31,12 @@ const keyboardOctave = document.getElementById('keyboardOctave');
 const midiConnectBtn = document.getElementById('midiConnectBtn');
 const midiStatus = document.getElementById('midiStatus');
 
-// Baseline (from MIDI) and current selection state
-let midiBaselineNoteWeights = null; // Map<pitchClass, duration>
-let midiBaselinePitchClasses = null; // Set<pitchClass>
-let midiPctByPc = null; // Map<pitchClass, pct>
+// Imported baseline and current selection state
+let baselineNoteWeights = null; // Map<pitchClass, duration or visible pixels>
+let baselineSource = null;
+let importVersion = 0;
+let baselinePitchClasses = null; // Set<pitchClass>
+let baselinePctByPc = null; // Map<pitchClass, pct>
 let selectedPitchClasses = new Set();
 
 let history = [];
@@ -140,8 +144,8 @@ function syncPressedFromKeyboard() {
     }
 }
 
-function hasMidiEmphasisData() {
-    return !!(midiBaselineNoteWeights && midiBaselineNoteWeights.size > 0);
+function hasImportedEmphasisData() {
+    return !!(baselineNoteWeights && baselineNoteWeights.size > 0);
 }
 
 // Live (held) input can come from the QWERTY keyboard or a MIDI device
@@ -225,13 +229,13 @@ function buildNoteWeightsForPitchClasses(pitchClassesSet) {
     const pcs = [...pitchClassesSet].sort((a, b) => a - b);
     const noteWeights = new Map();
 
-    if (midiBaselineNoteWeights && midiBaselineNoteWeights.size > 0) {
-        const baselineValues = [...midiBaselineNoteWeights.values()];
+    if (baselineNoteWeights && baselineNoteWeights.size > 0) {
+        const baselineValues = [...baselineNoteWeights.values()];
         const minWeight = Math.min(...baselineValues);
         const defaultAdded = Number.isFinite(minWeight) ? Math.max(0.0001, minWeight * 0.25) : 1;
 
         for (const pc of pcs) {
-            noteWeights.set(pc, midiBaselineNoteWeights.get(pc) ?? defaultAdded);
+            noteWeights.set(pc, baselineNoteWeights.get(pc) ?? defaultAdded);
         }
     } else {
         for (const pc of pcs) {
@@ -246,11 +250,14 @@ function updateTitle(best) {
     scaleSummary.hidden = !best;
     if (!best) return;
     scaleSummaryLabel.textContent = lastAppliedScale ? 'Selected scale' : 'Best guess';
+    if (!lastAppliedScale && baselineSource === 'screenshot') {
+        scaleSummaryLabel.textContent = 'Best guess from screenshot';
+    }
     scaleTitle.textContent = `${midiToNoteName(best.root)} ${best.name}`;
 }
 
 function updateResetButtonState() {
-    const hasBaseline = !!(midiBaselinePitchClasses && midiBaselinePitchClasses.size > 0);
+    const hasBaseline = !!(baselinePitchClasses && baselinePitchClasses.size > 0);
     resetToMidiBtn.disabled = !hasBaseline;
     clearBtn.disabled = selectedPitchClasses.size === 0;
 
@@ -276,7 +283,7 @@ function updateOutputFromSelection(pitchClassesOverride) {
     if (usedNotes.length === 0) {
         scaleOutput.innerHTML = `
             <div class="result-block analysis-empty">
-                <p>Click the piano keys or open a MIDI file to find matching scales.</p>
+                <p>Click the piano keys, open a MIDI file, or paste a piano roll screenshot.</p>
             </div>
         `;
         if (keyboardModeEnabled) {
@@ -284,8 +291,8 @@ function updateOutputFromSelection(pitchClassesOverride) {
                 ? 'Keyboard mode (Live): hold notes; scales update instantly.'
                 : 'Keyboard mode (Record): play notes to add them; Clear to start over.';
         } else {
-            selectionHint.textContent = midiBaselinePitchClasses
-                ? 'Select/deselect notes to refine the MIDI.'
+            selectionHint.textContent = baselinePitchClasses
+                ? 'Adjust the detected notes on the piano.'
                 : '';
         }
         updateTitle(null);
@@ -295,7 +302,7 @@ function updateOutputFromSelection(pitchClassesOverride) {
     }
 
     const noteWeights = buildNoteWeightsForPitchClasses(activePcs);
-    const showEmphasis = hasMidiEmphasisData();
+    const showEmphasis = hasImportedEmphasisData();
     const weightedMatches = findMatchingScalesWeighted(usedNotes, noteWeights);
     const simpleMatches = findMatchingScalesSimple(usedNotes);
 
@@ -309,7 +316,7 @@ function updateOutputFromSelection(pitchClassesOverride) {
         if (showEmphasis) {
             fullCandidates.sort((a, b) => (rankByKey.get(`${a.root}-${a.name}`) ?? 999) - (rankByKey.get(`${b.root}-${b.name}`) ?? 999));
         } else {
-            // No MIDI weighting available: keep ordering stable and neutral.
+            // No imported weighting available: keep ordering stable and neutral.
             fullCandidates.sort((a, b) => {
                 if (a.root !== b.root) return a.root - b.root;
                 return String(a.name).localeCompare(String(b.name));
@@ -354,6 +361,9 @@ function updateOutputFromSelection(pitchClassesOverride) {
         }
     );
     const whyHtml = (lastAppliedScale || !showEmphasis) ? '' : buildWhyDetails(best, noteWeights);
+    const sourceHint = baselineSource === 'screenshot'
+        ? '<p class="app-subtext">Based on visible note lengths. Check the detected notes on the piano.</p>'
+        : '';
 
     const noteChips = usedNotes
         .map(pc => `<li class="note-chip">${midiToNoteName(pc)}</li>`)
@@ -363,6 +373,7 @@ function updateOutputFromSelection(pitchClassesOverride) {
         <div class="result-block">
             <p class="app-subtext">Notes analyzed</p>
             <ul class="notes-list analysis-notes" aria-label="Notes being analyzed">${noteChips}</ul>
+            ${sourceHint}
             ${whyHtml}
             <div class="analysis-results-heading">
                 <h3 class="possible-scales-header">${headerText}</h3>
@@ -377,8 +388,8 @@ function updateOutputFromSelection(pitchClassesOverride) {
             ? 'Keyboard mode (Live): hold notes; release to change.'
             : 'Keyboard mode (Record): play notes to add them; Clear to start over.';
     } else {
-        selectionHint.textContent = midiBaselinePitchClasses
-            ? 'Adjust the notes to refine the MIDI analysis.'
+        selectionHint.textContent = baselinePitchClasses
+            ? 'Adjust the detected notes on the piano.'
             : 'Click a piano key to add or remove it.';
     }
     if (showEmphasis || lastAppliedScale) {
@@ -390,54 +401,69 @@ function updateOutputFromSelection(pitchClassesOverride) {
     updateUndoRedoButtons();
 }
 
-// Process a file (used by both drag-drop and file input)
-function processFile(file) {
-    // keep the UI visible; just update baseline + selection
-
-    if (!file) {
-        selectionHint.textContent = 'No file selected. Use manual note selection.';
+async function processFile(file, { pasted = false } = {}) {
+    if (!file) return;
+    const version = ++importVersion;
+    const isMidi = /\.midi?$/i.test(file.name);
+    const isImage = /^image\/(?:png|jpeg|webp)$/i.test(file.type) || /\.(?:png|jpe?g|webp)$/i.test(file.name);
+    if (!isMidi && !isImage) {
+        importStatus.textContent = 'Choose a MIDI file or a PNG, JPEG, or WebP screenshot.';
         return;
     }
 
-    if (!file.name.endsWith(".mid") && !file.name.endsWith(".midi")) {
-        selectionHint.textContent = 'Please select a MIDI file (.mid or .midi).';
+    importStatus.textContent = isMidi ? 'Reading MIDI…' : 'Reading piano roll…';
+    let noteWeights;
+    try {
+        if (isMidi) {
+            readMidi(await file.arrayBuffer(), (_usedNotes, weights) => { noteWeights = weights; });
+            if (!noteWeights.size) throw new Error('No pitched notes were found in this MIDI file.');
+        } else {
+            noteWeights = await readPianoRollImage(file);
+        }
+    } catch (error) {
+        if (version === importVersion) {
+            importStatus.textContent = isMidi
+                ? 'Could not read pitched notes. Check the MIDI file and try again.'
+                : error.message;
+        }
         return;
     }
-    
-    fileName.textContent = file.name;
+    if (version !== importVersion) return;
+
+    lastAppliedScale = null;
+    showAllScales = false;
+    baselineSource = isMidi ? 'midi' : 'screenshot';
+    baselineNoteWeights = noteWeights;
+    baselinePitchClasses = new Set(noteWeights.keys());
+    baselinePctByPc = buildPctMap(noteWeights);
+    piano.setMidiPercentages(baselinePctByPc);
+    piano.setSelectedPitchClasses([...baselinePitchClasses], { silent: true });
+    selectedPitchClasses = new Set(baselinePitchClasses);
+
+    fileName.textContent = pasted ? 'Pasted screenshot' : file.name;
     show(fileName);
-
-    const reader = new FileReader();
-
-    reader.onload = () => {
-        const arrayBuffer = reader.result;
-        readMidi(arrayBuffer, (usedNotes, noteWeights, matches, tonic) => {
-            lastAppliedScale = null;
-            midiBaselineNoteWeights = noteWeights;
-            midiBaselinePitchClasses = new Set(usedNotes);
-            midiPctByPc = buildPctMap(noteWeights);
-
-            piano.setMidiPercentages(midiPctByPc);
-            piano.setSelectedPitchClasses(usedNotes, { silent: true });
-            selectedPitchClasses = new Set(usedNotes);
-
-            showAllScales = false;
-            updateOutputFromSelection();
-        });
-    }
-
-    reader.onerror = () => {
-        selectionHint.textContent = 'Error reading file. Please try again.';
-    }
-
-    reader.readAsArrayBuffer(file);
+    resetToMidiBtn.textContent = isMidi ? 'Restore MIDI notes' : 'Restore screenshot notes';
+    importStatus.textContent = `Detected ${baselinePitchClasses.size} note names.`;
+    updateOutputFromSelection(selectedPitchClasses);
 }
 
+document.addEventListener('paste', event => {
+    if (isEditableTarget(event.target)) return;
+    const file = [...(event.clipboardData?.files ?? [])].find(item => item.type.startsWith('image/'));
+    if (!file) return;
+    event.preventDefault();
+    processFile(file, { pasted: true });
+});
+
 resetAllBtn?.addEventListener('click', () => {
-    // Full reset: forget the uploaded MIDI and return to a clean manual state.
-    midiBaselineNoteWeights = null;
-    midiBaselinePitchClasses = null;
-    midiPctByPc = null;
+    // Invalidate any pending import and return to a clean manual state.
+    importVersion++;
+    baselineSource = null;
+    importStatus.textContent = '';
+    resetToMidiBtn.textContent = 'Restore MIDI notes';
+    baselineNoteWeights = null;
+    baselinePitchClasses = null;
+    baselinePctByPc = null;
     lastAppliedScale = null;
     showAllScales = false;
 
@@ -477,10 +503,10 @@ clearBtn.addEventListener('click', () => {
 });
 
 resetToMidiBtn.addEventListener('click', () => {
-    if (!midiBaselinePitchClasses || midiBaselinePitchClasses.size === 0) return;
+    if (!baselinePitchClasses || baselinePitchClasses.size === 0) return;
     lastAppliedScale = null;
     showAllScales = false;
-    applySelection([...midiBaselinePitchClasses], { silent: true, recordHistory: true });
+    applySelection([...baselinePitchClasses], { silent: true, recordHistory: true });
 });
 
 undoBtn.addEventListener('click', () => {
@@ -573,6 +599,7 @@ dropzone.addEventListener("click", () => {
 // Handle file selection from input
 fileInput.addEventListener("change", (event) => {
     const file = event.target.files[0];
+    event.target.value = '';
     processFile(file);
 });
 

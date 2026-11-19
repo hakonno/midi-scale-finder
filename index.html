@@ -17,11 +17,12 @@
             </div>
             <div class="file-control">
                 <button class="panel file-button" id="dropzone" type="button">
-                    <span class="file-action">Open MIDI file</span>
-                    <span class="dropzone-detail">or drop a .mid or .midi here</span>
+                    <span class="file-action">Open MIDI or screenshot</span>
+                    <span class="dropzone-detail">Drop a file here or paste a piano roll</span>
                 </button>
-                <input type="file" id="fileInput" accept=".mid,.midi" hidden>
-                <div id="fileName" class="file-name hidden" aria-live="polite"></div>
+                <input type="file" id="fileInput" accept=".mid,.midi,.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" hidden>
+                <div id="fileName" class="file-name hidden"></div>
+                <p id="importStatus" class="app-subtext import-status" role="status"></p>
             </div>
         </header>
 
@@ -91,6 +92,8 @@
         <section class="panel" aria-labelledby="about-heading">
             <h2 id="about-heading">What this does</h2>
             <p>Finds likely Major/Minor keys from either a MIDI file <em>or</em> a set of notes you select (mouse/touch/keyboard).</p>
+            <h2>Import a piano roll screenshot</h2>
+            <p>Paste with Ctrl+V or ⌘V, or open a PNG, JPEG, or WebP. For FL Studio, crop to the note grid and include at least one octave of the piano on the left. Colored notes count and gray ghost notes are skipped. Review the detected notes on the piano. The image stays in your browser.</p>
             <h2>Key vs scale</h2>
             <p>A <strong>scale</strong> is a set of notes (like A natural minor). A <strong>key</strong> usually means a scale <em>plus</em> a “home” note (the tonic) and a musical context. This tool lists Major/Minor <strong>keys</strong> (tonic + mode) that best fit your selected notes.</p>
             <h2>How results are shown</h2>
