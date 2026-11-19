@@ -33,7 +33,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
 
     const WHITE_KEY_HEIGHT = 48;
     const WHITE_KEY_GAP = 0;
-    const BLACK_KEY_HEIGHT = 24;
+    const BLACK_KEY_HEIGHT = 32;
 
     let selected = new Set();
     let pressed = new Set();
