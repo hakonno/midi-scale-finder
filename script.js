@@ -24,6 +24,7 @@ const pianoMount = document.getElementById('pianoMount');
 
 const keyboardModeToggle = document.getElementById('keyboardModeToggle');
 const keyboardInputMode = document.getElementById('keyboardInputMode');
+const keyboardOctave = document.getElementById('keyboardOctave');
 const midiConnectBtn = document.getElementById('midiConnectBtn');
 const midiStatus = document.getElementById('midiStatus');
 
@@ -41,6 +42,7 @@ let lastAppliedScale = null; // { root:number, mode:string } | null
 
 // Keyboard piano mode
 let keyboardModeEnabled = false;
+let keyboardTranspose = (Number(keyboardOctave.value) - 5) * 12;
 let keyboardMode = 'record'; // 'record' | 'live'
 const heldKeyboardCodes = new Map();
 // Hardware MIDI input (Web MIDI). Held notes as MIDI numbers.
@@ -120,7 +122,7 @@ function isEditableTarget(el) {
 function getHeldPitchClasses() {
     const pcs = new Set();
     for (const code of heldKeyboardCodes.keys()) {
-        const midi = KEYBOARD_MIDI_BY_CODE[code];
+        const midi = KEYBOARD_MIDI_BY_CODE[code] + keyboardTranspose;
         if (!Number.isFinite(midi)) continue;
         pcs.add(((midi % 12) + 12) % 12);
     }
@@ -886,6 +888,7 @@ document.addEventListener('visibilitychange', () => {
 function setKeyboardModeEnabled(nextEnabled) {
     keyboardModeEnabled = !!nextEnabled;
     if (keyboardInputMode) keyboardInputMode.disabled = !keyboardModeEnabled;
+    keyboardOctave.disabled = !keyboardModeEnabled;
 
     // Do not force showAllScales off here; it's a page-wide preference.
 
@@ -921,6 +924,13 @@ if (keyboardInputMode) {
     });
 }
 
+keyboardOctave.addEventListener('change', () => {
+    releaseComputerKeys();
+    keyboardTranspose = (Number(keyboardOctave.value) - 5) * 12;
+    syncPressedFromKeyboard();
+    if (keyboardMode === 'live') updateOutputFromSelection();
+});
+
 function releaseComputerKeys() {
     for (const release of heldKeyboardCodes.values()) release?.();
     heldKeyboardCodes.clear();
@@ -938,7 +948,7 @@ window.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (isEditableTarget(e.target)) return;
 
-    const midi = KEYBOARD_MIDI_BY_CODE[e.code];
+    const midi = KEYBOARD_MIDI_BY_CODE[e.code] + keyboardTranspose;
     if (!Number.isFinite(midi)) return;
     if (e.repeat) {
         e.preventDefault();
@@ -965,12 +975,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('keyup', (e) => {
-    if (!keyboardModeEnabled) return;
-    if (isEditableTarget(e.target)) return;
-
-    const midi = KEYBOARD_MIDI_BY_CODE[e.code];
-    if (!Number.isFinite(midi)) return;
-
+    if (!heldKeyboardCodes.has(e.code)) return;
     e.preventDefault();
 
     heldKeyboardCodes.delete(e.code);
