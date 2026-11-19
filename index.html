@@ -2,26 +2,34 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Find major and minor keys by uploading a MIDI file or playing notes on an interactive piano.">
     <title>MIDI Key Finder - Find a key from MIDI file or notes</title>
     <script src="Midi.js"></script>
     <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
     <main class="page">
-        <h1>Find a key/scale from MIDI file or notes (only Major/Minor)</h1>
-        <p class="muted">Upload a .mid/.midi file or choose notes to find a key/scale.</p>
+        <h1>MIDI Key Finder</h1>
+        <p class="muted">Find matching major and minor keys from a MIDI file or the notes you play.</p>
 
         <div id="dropzone" class="panel" role="button" tabindex="0" aria-label="Drop MIDI file here or click to select file">
             <div id="dropzoneContent">
-                <div>Drop MIDI file here or click to choose</div>
+                <div><strong>Choose a MIDI file</strong>
+                <div class="dropzone-detail">Or drop a .mid or .midi file here</div></div>
                 <div id="fileName" class="file-name hidden"></div>
             </div>
             <input type="file" id="fileInput" accept=".mid,.midi" style="display: none;" aria-label="Choose MIDI file">
         </div>
-        <div id="output" aria-live="polite" role="region" aria-label="Analysis results">
+        <div id="output" role="region" aria-label="Analysis results">
             <div class="app-layout">
                 <section class="app-left" aria-label="Note selection">
-                    <h2 class="app-title" id="scaleTitle">Auto Scale</h2>
+                    <div class="piano-header">
+                        <h2 class="app-title" id="scaleTitle">Notes</h2>
+                        <label class="piano-volume">Volume
+                            <input id="pianoVolume" type="range" min="0" max="1" step="0.01" value="0.72">
+                        </label>
+                    </div>
                     <div id="pianoMount" class="piano-mount" aria-label="Piano note selector"></div>
                     <div class="app-controls">
                         <button id="clearBtn" type="button" disabled>Clear</button>
@@ -63,7 +71,7 @@
             <h2>How results are shown</h2>
             <p>You’ll see possible Major/Minor keys for the notes you provided, ranked with the best guess highlighted. If a MIDI file is uploaded, the “Why the best guess?” dropdown explains the choice using which notes are most emphasized in the file.</p>
             <h2>What is “emphasis”?</h2>
-            <p>In this app, “emphasis” means which notes show up the most in the MIDI file. If several keys match equally well, the list order uses this as a tie-break: the tool prefers keys where the “home” note and other important notes show up more often. (This only applies when a MIDI file is uploaded.)</p>
+            <p>In this app, “emphasis” means which notes account for the most playing time in the MIDI file. If several keys match equally well, the list order uses this as a tie-break: the tool prefers keys where the “home” note and other important notes sound for longer. (This only applies when a MIDI file is uploaded.)</p>
             <h2>Keyboard mode</h2>
             <p>Keyboard mode lets you play notes using your computer keyboard (with sound). It maps keys by physical key position (so it works across different keyboard layouts).</p>
             <h2>Keyboard input modes</h2>
@@ -87,6 +95,10 @@
 
     <footer class="footer" role="contentinfo">
         Open source - contributions welcome on <a href="https://github.com/hakonno/midi-scale-finder" target="_blank" rel="noopener noreferrer">GitHub</a>.
+        <div class="sample-credit">Piano samples by Alexander Holm.
+            <a href="https://github.com/sfzinstruments/SalamanderGrandPiano">Salamander Grand Piano v3</a>
+            · <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>
+        </div>
     </footer>
 
     <script type="module" src="./script.js"></script>

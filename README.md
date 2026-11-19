@@ -72,3 +72,14 @@ node tune.js <path-to-midi-folder>
 ```
 
 The folder must contain `.mid` files named like `C_Major_...mid` / `A_Minor_...mid`. The original training set is the Major/Minor files from https://github.com/BenLeon2001/Free-Chord-Progressions (640 files).
+## Piano audio
+
+The piano uses stereo Salamander Grand Piano v3 recordings by Alexander Holm
+([source](https://github.com/sfzinstruments/SalamanderGrandPiano), [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)).
+The app uses velocity layers 4, 9, and 15, shortened, faded where trimmed, and
+encoded to MP3 at 44.1 kHz. Nearby notes are transposed from the closest
+recording. The full set is about 7.6 MB on disk. The browser loads a middle
+register layer when audio is first activated and fetches other recordings
+as needed. A synthesized voice is available while recordings load or when
+a sample is unavailable. MIDI note releases and sustain pedal messages
+control how long the sound rings.

@@ -42,9 +42,11 @@ let lastAppliedScale = null; // { root:number, mode:string } | null
 // Keyboard piano mode
 let keyboardModeEnabled = false;
 let keyboardMode = 'record'; // 'record' | 'live'
-const heldKeyboardCodes = new Set();
+const heldKeyboardCodes = new Map();
 // Hardware MIDI input (Web MIDI). Held notes as MIDI numbers.
-const heldMidiNotes = new Set();
+const heldMidiNotes = new Map();
+const sustainedMidiNotes = new Map();
+const sustainPedals = new Set();
 let midiAccess = null;
 let showAllScales = false;
 
@@ -117,12 +119,12 @@ function isEditableTarget(el) {
 
 function getHeldPitchClasses() {
     const pcs = new Set();
-    for (const code of heldKeyboardCodes) {
+    for (const code of heldKeyboardCodes.keys()) {
         const midi = KEYBOARD_MIDI_BY_CODE[code];
         if (!Number.isFinite(midi)) continue;
         pcs.add(((midi % 12) + 12) % 12);
     }
-    for (const midi of heldMidiNotes) {
+    for (const { midi } of heldMidiNotes.values()) {
         pcs.add(((midi % 12) + 12) % 12);
     }
     return pcs;
@@ -239,7 +241,7 @@ function buildNoteWeightsForPitchClasses(pitchClassesSet) {
 
 function updateTitle(best) {
     if (!best) {
-        scaleTitle.textContent = 'Auto Scale';
+        scaleTitle.textContent = 'Notes';
         return;
     }
     scaleTitle.textContent = `${midiToNoteName(best.root)} ${best.name}`;
@@ -318,9 +320,7 @@ function updateOutputFromSelection(pitchClassesOverride) {
 
     const totalCandidates = fullCandidates.length;
     const isLive = isLiveInputActive();
-    const isScrollEnabled = !!showAllScales;
 
-    // Keep the full candidate list; the UI reserves a fixed area and hides overflow.
     const candidates = fullCandidates;
 
     const best = candidates[0];
@@ -352,10 +352,7 @@ function updateOutputFromSelection(pitchClassesOverride) {
         weightedMatches,
         {
             showEmphasis,
-            isLive,
-            totalCandidates,
-            showAllEnabled: showAllScales,
-            isScrollEnabled
+            showAllEnabled: showAllScales
         }
     );
     const whyHtml = (lastAppliedScale || !showEmphasis) ? '' : buildWhyDetails(best, noteWeights);
@@ -505,9 +502,15 @@ scaleOutput.addEventListener('click', (e) => {
     if (toggleBtn) {
         showAllScales = !showAllScales;
         updateOutputFromSelection();
+        scaleOutput.querySelector('[data-action="toggle-show-all-scales"]')?.focus();
         return;
     }
 
+    const preview = e.target.closest('[data-preview-scale]');
+    if (preview) {
+        playScalePreview(preview);
+        return;
+    }
     const btn = e.target.closest('[data-scale-root][data-scale-mode]');
     if (!btn) return;
     const root = Number(btn.dataset.scaleRoot);
@@ -520,32 +523,17 @@ scaleOutput.addEventListener('click', (e) => {
     applySelection(pcs, { silent: true, recordHistory: true });
 });
 
-// Right-click scale preview: do not overwrite selection
+function playScalePreview(button) {
+    const midiSequence = buildScalePreviewMidiSequence(button.dataset.scaleRoot, button.dataset.scaleMode);
+    piano.unlockAudioFromGesture();
+    piano.previewMidiSequence(midiSequence);
+}
+
 scaleOutput.addEventListener('contextmenu', (e) => {
-    const btn = e.target.closest('[data-scale-root][data-scale-mode]');
-    if (!btn) return;
+    const button = e.target.closest('[data-scale-root][data-scale-mode]');
+    if (!button) return;
     e.preventDefault();
-
-    const root = Number(btn.dataset.scaleRoot);
-    const mode = btn.dataset.scaleMode;
-    if (!Number.isFinite(root) || !mode) return;
-
-    const midiSeq = buildScalePreviewMidiSequence(root, mode);
-    if (piano && typeof piano.unlockAudioFromGesture === 'function') {
-        piano.unlockAudioFromGesture();
-    }
-    if (piano && typeof piano.previewMidiSequence === 'function') {
-        piano.previewMidiSequence(midiSeq, { velocity: 0.85, intervalMs: 190, endPauseMs: 160, endVelocity: 1 });
-        return;
-    }
-
-    // Fallback (should be rare): play pitch-classes as-is.
-    const pcs = getScalePitchClasses(root, mode);
-    if (piano && typeof piano.previewPitchClassSequence === 'function') {
-        piano.previewPitchClassSequence(pcs, { velocity: 0.85, intervalMs: 190 });
-    } else if (piano && typeof piano.previewPitchClasses === 'function') {
-        piano.previewPitchClasses(pcs, { velocity: 0.85, intervalMs: 190 });
-    }
+    playScalePreview(button);
 });
 
 // Handle drag over
@@ -677,10 +665,7 @@ function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatch
 
     const {
         showEmphasis = true,
-        isLive = false,
-        totalCandidates = candidates.length,
-        showAllEnabled = false,
-        isScrollEnabled = false
+        showAllEnabled = false
     } = options;
 
     const selectedKey = lastAppliedScale ? { root: lastAppliedScale.root, name: lastAppliedScale.mode } : null;
@@ -710,10 +695,13 @@ function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatch
         }
         : null;
 
-    const items = enriched.map(m => {
+    const visibleCount = 6;
+    const visibleScales = showAllEnabled ? enriched : enriched.slice(0, visibleCount);
+    const items = visibleScales.map(m => {
         const label = `${midiToNoteName(m.root)} ${m.name}`;
         const isRelative = !!(rel && m.root === rel.root && m.name === rel.mode);
 
+        const playButton = `<button type="button" class="scale-play" data-preview-scale data-scale-root="${m.root}" data-scale-mode="${m.name}" aria-label="Play ${label}">Play</button>`;
         if (!showEmphasis) {
             const metaText = m.isSelected ? 'Selected'
                 : (isRelative ? 'Relative key'
@@ -725,6 +713,7 @@ function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatch
                         <span class="scale-compact-name">${label}</span>
                         <span class="scale-compact-meta">${metaText}</span>
                     </button>
+                    ${playButton}
                 </li>
             `;
         }
@@ -753,25 +742,25 @@ function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatch
                     </div>
                     <div class="scale-meta">${meta}</div>
                 </button>
+                ${playButton}
             </li>
         `;
     }).join("");
 
-    const shouldShowToggle = totalCandidates > 10;
+    const shouldShowToggle = enriched.length > visibleCount;
     const toggleBtn = shouldShowToggle
         ? `<button type="button" class="scale-toggle-btn" data-action="toggle-show-all-scales" aria-pressed="${showAllEnabled ? 'true' : 'false'}">
-                ${showAllEnabled ? 'Hide' : `Show all (${totalCandidates})`}
+                ${showAllEnabled ? 'Show fewer' : `Show all (${enriched.length})`}
            </button>`
         : '';
 
-    const fixedWrapClass = `scale-list-wrap scale-list-wrap--fixed${showAllEnabled ? ' scale-list-wrap--scroll' : ''}`;
+    const fixedWrapClass = `scale-list-wrap${showAllEnabled ? ' scale-list-wrap--scroll' : ''}`;
     const fixedListClass = !showEmphasis
         ? 'scale-list scale-list--compact'
         : 'scale-list scale-list--onecol';
 
     const footer = `
         <div class="hint-text scale-footer">
-            <span>Tip: Right-click a key for preview.</span>
             ${toggleBtn}
         </div>
     `;
@@ -780,7 +769,7 @@ function buildPossibleScalesSection(candidates, best, noteWeights, weightedMatch
         <div class="${fixedWrapClass}">
             <ul class="${fixedListClass}">${items}</ul>
         </div>
-        ${footer}
+        ${shouldShowToggle ? footer : ''}
     `;
 }
 
@@ -873,6 +862,8 @@ function cleanupTransientInputState() {
     // Reset transient held/pressed state and stop any queued previews/audio.
     heldKeyboardCodes.clear();
     heldMidiNotes.clear();
+    sustainedMidiNotes.clear();
+    sustainPedals.clear();
     if (piano && typeof piano.setPressedPitchClasses === 'function') {
         piano.setPressedPitchClasses([]);
     }
@@ -881,9 +872,7 @@ function cleanupTransientInputState() {
     } else if (piano && typeof piano.cancelPreviews === 'function') {
         piano.cancelPreviews();
     }
-    if (keyboardModeEnabled && keyboardMode === 'live') {
-        updateOutputFromSelection();
-    }
+    if (keyboardMode === 'live') updateOutputFromSelection();
 }
 
 window.addEventListener('pagehide', cleanupTransientInputState);
@@ -901,7 +890,7 @@ function setKeyboardModeEnabled(nextEnabled) {
     // Do not force showAllScales off here; it's a page-wide preference.
 
     if (!keyboardModeEnabled) {
-        heldKeyboardCodes.clear();
+        releaseComputerKeys();
         syncPressedFromKeyboard();
         updateOutputFromSelection();
     } else {
@@ -932,9 +921,14 @@ if (keyboardInputMode) {
     });
 }
 
+function releaseComputerKeys() {
+    for (const release of heldKeyboardCodes.values()) release?.();
+    heldKeyboardCodes.clear();
+}
+
 window.addEventListener('blur', () => {
     if (!keyboardModeEnabled) return;
-    heldKeyboardCodes.clear();
+    releaseComputerKeys();
     syncPressedFromKeyboard();
     if (keyboardMode === 'live') updateOutputFromSelection();
 });
@@ -953,16 +947,10 @@ window.addEventListener('keydown', (e) => {
 
     e.preventDefault();
 
-    heldKeyboardCodes.add(e.code);
+    piano.unlockAudioFromGesture();
+    heldKeyboardCodes.set(e.code, piano.playMidiNote(midi, 0.73));
     syncPressedFromKeyboard();
-
     lastAppliedScale = null;
-    if (piano && typeof piano.unlockAudioFromGesture === 'function') {
-        piano.unlockAudioFromGesture();
-    }
-    if (piano && typeof piano.playMidiNote === 'function') {
-        piano.playMidiNote(midi, 0.95);
-    }
 
     const pc = ((midi % 12) + 12) % 12;
     if (keyboardMode === 'record') {
@@ -997,17 +985,14 @@ window.addEventListener('keyup', (e) => {
 // Mirrors the QWERTY keyboard flow: note-on behaves like keydown (sound +
 // record/live selection), note-off like keyup. Uses the same Record/Live mode.
 
-function midiNoteOn(midi, velocity) {
-    heldMidiNotes.add(midi);
+function midiNoteOn(voiceId, channel, midi, velocity) {
+    heldMidiNotes.get(voiceId)?.release?.();
+    sustainedMidiNotes.get(voiceId)?.release?.();
+    sustainedMidiNotes.delete(voiceId);
+    piano.unlockAudioFromGesture();
+    heldMidiNotes.set(voiceId, { channel, midi, release: piano.playMidiNote(midi, velocity) });
     syncPressedFromKeyboard();
-
     lastAppliedScale = null;
-    if (piano && typeof piano.unlockAudioFromGesture === 'function') {
-        piano.unlockAudioFromGesture();
-    }
-    if (piano && typeof piano.playMidiNote === 'function') {
-        piano.playMidiNote(midi, Math.max(0.2, velocity));
-    }
 
     const pc = ((midi % 12) + 12) % 12;
     if (keyboardMode === 'record') {
@@ -1021,8 +1006,12 @@ function midiNoteOn(midi, velocity) {
     }
 }
 
-function midiNoteOff(midi) {
-    heldMidiNotes.delete(midi);
+function midiNoteOff(voiceId) {
+    const voice = heldMidiNotes.get(voiceId);
+    if (!voice) return;
+    if (sustainPedals.has(voice.channel)) sustainedMidiNotes.set(voiceId, voice);
+    else voice.release?.();
+    heldMidiNotes.delete(voiceId);
     syncPressedFromKeyboard();
 
     if (keyboardMode === 'live') {
@@ -1030,17 +1019,30 @@ function midiNoteOff(midi) {
     }
 }
 
-function handleMidiMessage(e) {
-    const data = e.data;
-    if (!data || data.length < 3) return;
+function handleMidiMessage(inputId, event) {
+    const data = event.data;
+    if (!data || data.length < 3 || document.hidden) return;
     const command = data[0] & 0xf0;
+    const channel = JSON.stringify([inputId, data[0] & 0x0f]);
     const note = data[1];
     const velocity = data[2];
+    const voiceId = `${channel}:${note}`;
 
     if (command === 0x90 && velocity > 0) {
-        midiNoteOn(note, velocity / 127);
+        midiNoteOn(voiceId, channel, note, velocity / 127);
     } else if (command === 0x80 || (command === 0x90 && velocity === 0)) {
-        midiNoteOff(note);
+        midiNoteOff(voiceId);
+    } else if (command === 0xb0 && note === 64) {
+        if (velocity >= 64) {
+            sustainPedals.add(channel);
+        } else {
+            sustainPedals.delete(channel);
+            for (const [id, voice] of sustainedMidiNotes) {
+                if (voice.channel !== channel) continue;
+                voice.release?.();
+                sustainedMidiNotes.delete(id);
+            }
+        }
     }
 }
 
@@ -1049,7 +1051,8 @@ function updateMidiInputs() {
 
     const names = [];
     for (const input of midiAccess.inputs.values()) {
-        input.onmidimessage = handleMidiMessage;
+        if (input.state === 'disconnected') continue;
+        input.onmidimessage = event => handleMidiMessage(input.id, event);
         names.push(input.name || 'MIDI device');
     }
 
@@ -1061,14 +1064,26 @@ function updateMidiInputs() {
         midiStatus.textContent = 'No MIDI device found. Plug one in; it will connect automatically.';
         midiConnectBtn.textContent = 'MIDI enabled';
         midiConnectBtn.disabled = true;
-
-        // A disconnected device never sends its note-offs: unstick held notes.
-        if (heldMidiNotes.size > 0) {
-            heldMidiNotes.clear();
-            syncPressedFromKeyboard();
-            if (keyboardMode === 'live') updateOutputFromSelection(getHeldPitchClasses());
-        }
     }
+}
+
+function handleMidiDeviceChange(event) {
+    if (event.port.type === 'input' && event.port.state === 'disconnected') {
+        const inputId = event.port.id;
+        for (const voices of [heldMidiNotes, sustainedMidiNotes]) {
+            for (const [id, voice] of voices) {
+                if (JSON.parse(voice.channel)[0] !== inputId) continue;
+                voice.release?.();
+                voices.delete(id);
+            }
+        }
+        for (const channel of sustainPedals) {
+            if (JSON.parse(channel)[0] === inputId) sustainPedals.delete(channel);
+        }
+        syncPressedFromKeyboard();
+        if (keyboardMode === 'live') updateOutputFromSelection(getHeldPitchClasses());
+    }
+    updateMidiInputs();
 }
 
 if (midiConnectBtn && midiStatus) {
@@ -1084,7 +1099,7 @@ if (midiConnectBtn && midiStatus) {
             }
             try {
                 midiAccess = await navigator.requestMIDIAccess();
-                midiAccess.onstatechange = updateMidiInputs;
+                midiAccess.onstatechange = handleMidiDeviceChange;
                 updateMidiInputs();
             } catch {
                 midiStatus.textContent = 'MIDI access was denied. Check the browser permission and try again.';

@@ -1,3 +1,5 @@
+import { createPianoSamples } from './pianoSamples.js';
+
 const PITCH_CLASS_TO_SHARP_NAME = [
     'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'
 ];
@@ -11,7 +13,7 @@ const BLACK_KEYS = [
     { pc: 1, lowerWhiteIndex: 6 }   // C# between D(5) and C(6)
 ];
 
-// Base frequency for C4 (used for pitch-class playback)
+// Default frequency for the fallback synth
 const C4_HZ = 261.63;
 
 function clampPct(value) {
@@ -31,7 +33,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
 
     const WHITE_KEY_HEIGHT = 48;
     const WHITE_KEY_GAP = 0;
-    const BLACK_KEY_HEIGHT = 32;
+    const BLACK_KEY_HEIGHT = 24;
 
     let selected = new Set();
     let pressed = new Set();
@@ -42,6 +44,16 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
     let masterBus = null;
     let hammerBuffer = null;
     let audioUnlocked = false;
+    let audioReady = null;
+    let warmedSamples = false;
+    const samples = createPianoSamples();
+    const previewReleases = new Set();
+    const volume = document.getElementById('pianoVolume');
+    volume.addEventListener('input', () => {
+        if (masterBus) {
+            masterBus.input.gain.setTargetAtTime(Number(volume.value), audioContext.currentTime, 0.015);
+        }
+    });
 
     let previewToken = 0;
     const previewTimeouts = new Set();
@@ -52,6 +64,8 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
             window.clearTimeout(id);
         }
         previewTimeouts.clear();
+        for (const release of previewReleases) release();
+        previewReleases.clear();
     }
 
     function stopAllAudio() {
@@ -59,7 +73,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
 
         if (audioContext) {
             try {
-                audioContext.close();
+                audioContext.close().catch(() => {});
             } catch {
                 // ignore
             }
@@ -68,6 +82,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         masterBus = null;
         hammerBuffer = null;
         audioUnlocked = false;
+        audioReady = null;
     }
 
     function schedulePreview(fn, delayMs) {
@@ -85,19 +100,21 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         if (!audioUnlocked) return;
         if (typeof document !== 'undefined' && document.hidden) return;
 
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
         if (!audioContext) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (audioContext.state === 'suspended') {
-            // If resume is blocked, we keep the context suspended and avoid starting voices.
-            audioContext.resume().catch(() => {});
-        }
-
-        if (!masterBus) {
+            audioContext = new AudioContext({ latencyHint: 'interactive' });
             masterBus = buildMasterBus(audioContext);
         }
-        if (!hammerBuffer) {
-            hammerBuffer = buildHammerBuffer(audioContext);
+        if (!warmedSamples) {
+            warmedSamples = true;
+            samples.warmUp(audioContext);
+        }
+        const context = audioContext;
+        if (context.state !== 'running' && !audioReady) {
+            audioReady = context.resume().catch(() => {}).finally(() => {
+                if (audioContext === context) audioReady = null;
+            });
         }
     }
 
@@ -105,7 +122,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
     // with a subtle parallel room reverb (generated impulse response).
     function buildMasterBus(ctx) {
         const input = ctx.createGain();
-        input.gain.value = 0.9;
+        input.gain.value = Number(volume.value);
 
         const compressor = ctx.createDynamicsCompressor();
         compressor.threshold.value = -18;
@@ -117,7 +134,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         const convolver = ctx.createConvolver();
         convolver.buffer = buildImpulseResponse(ctx, 1.6, 2.8);
         const reverbGain = ctx.createGain();
-        reverbGain.gain.value = 0.14;
+        reverbGain.gain.value = 0.065;
 
         input.connect(compressor);
         input.connect(convolver);
@@ -161,13 +178,14 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         return isAudioRunning();
     }
 
-    function playVoice({ freq, velocity = 1 }) {
+    function playSynth({ freq, velocity }) {
         try {
             if (typeof document !== 'undefined' && document.hidden) return;
             ensureAudioContext();
             if (!audioContext || audioContext.state !== 'running' || !masterBus) return;
 
             const ctx = audioContext;
+            hammerBuffer ??= buildHammerBuffer(ctx);
             const now = ctx.currentTime;
             const f0 = typeof freq === 'number' && Number.isFinite(freq) && freq > 0 ? freq : C4_HZ;
             const vel = Math.max(0, Math.min(1, velocity));
@@ -195,7 +213,9 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
             lp.Q.setValueAtTime(0.6, now);
 
             lp.connect(out);
-            out.connect(masterBus.input);
+            const releaseGain = ctx.createGain();
+            out.connect(releaseGain);
+            releaseGain.connect(masterBus.input);
 
             // Stretched (inharmonic) partials; stiffness grows toward the treble
             const inharmonicity = 0.0001 * Math.pow(2, reg * 4);
@@ -262,100 +282,67 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
             // Free the voice graph once the sources end
             if (sources.length > 0) {
                 sources[0].onended = () => {
-                    try { out.disconnect(); } catch { /* already gone */ }
+                    releaseGain.disconnect();
                 };
             }
+            return () => {
+                const releaseAt = ctx.currentTime;
+                releaseGain.gain.setTargetAtTime(0.0001, releaseAt, 0.04);
+                for (const source of sources) source.stop(Math.min(stopAt, releaseAt + 0.25));
+            };
         } catch {
             // Ignore audio failures (e.g. blocked by browser policy)
         }
     }
 
-    function playPc(pc, velocity = 1) {
-        const freq = C4_HZ * Math.pow(2, (pc % 12) / 12);
-        playVoice({ freq, velocity });
+    function playPc(pc, velocity = 0.72) {
+        return playMidiNote(60 + pc % 12, velocity);
     }
 
-    function playMidiNote(midi, velocity = 1) {
-        const midiNum = Number(midi);
-        if (!Number.isFinite(midiNum)) return;
-        const freq = 440 * Math.pow(2, (midiNum - 69) / 12);
-        playVoice({ freq, velocity });
-    }
-
-    function previewPitchClasses(pcs, { velocity = 0.85, intervalMs = 190 } = {}) {
+    function playMidiNote(midi, velocity = 0.72) {
+        if (!Number.isFinite(midi)) return;
         ensureAudioContext();
-        if (!isAudioRunning()) return;
-        cancelPreviews();
-        const token = ++previewToken;
-        const ordered = [...new Set((pcs || []).map(Number))].sort((a, b) => a - b);
-        if (ordered.length === 0) return;
+        const context = audioContext;
+        let cancelled = false;
+        let release;
 
-        ordered.forEach((pc, idx) => {
-            schedulePreview(() => {
-                if (token !== previewToken) return;
-                playPc(pc, velocity);
-            }, idx * intervalMs);
-        });
+        const start = () => {
+            if (cancelled || context !== audioContext || !isAudioRunning() || document.hidden) return;
+            release = samples.play(context, masterBus.input, midi, velocity)
+                ?? playSynth({ freq: 440 * 2 ** ((midi - 69) / 12), velocity });
+        };
+        if (audioReady) audioReady.then(start);
+        else start();
+
+        return () => {
+            if (cancelled) return;
+            cancelled = true;
+            if (context === audioContext) release?.();
+        };
     }
 
-    function previewPitchClassSequence(sequence, {
-        velocity = 0.85,
-        intervalMs = 190,
-        endPauseMs = 140,
-        endVelocity = 1
-    } = {}) {
-        ensureAudioContext();
-        if (!isAudioRunning()) return;
+    function previewMidiSequence(sequence, { intervalMs = 190 } = {}) {
         cancelPreviews();
-        const token = ++previewToken;
-        const seq = (sequence || []).map(Number).filter((v) => Number.isFinite(v));
-        if (seq.length === 0) return;
-
-        let t = 0;
-        seq.forEach((pc, idx) => {
-            const isLast = idx === seq.length - 1;
-            const v = isLast ? endVelocity : velocity;
-
-            schedulePreview(() => {
-                if (token !== previewToken) return;
-                playPc(pc, v);
-            }, t);
-
-            t += intervalMs;
-            if (!isLast && idx === seq.length - 2) {
-                t += endPauseMs;
-            }
-        });
-    }
-
-    function previewMidiSequence(sequence, {
-        velocity = 0.85,
-        intervalMs = 190,
-        endPauseMs = 160,
-        endVelocity = 1
-    } = {}) {
+        const token = previewToken;
         ensureAudioContext();
-        if (!isAudioRunning()) return;
-        cancelPreviews();
-        const token = ++previewToken;
-        const seq = (sequence || []).map(Number).filter((v) => Number.isFinite(v));
-        if (seq.length === 0) return;
 
-        let t = 0;
-        seq.forEach((midi, idx) => {
-            const isLast = idx === seq.length - 1;
-            const v = isLast ? endVelocity : velocity;
-
-            schedulePreview(() => {
-                if (token !== previewToken) return;
-                playMidiNote(midi, v);
-            }, t);
-
-            t += intervalMs;
-            if (!isLast && idx === seq.length - 2) {
-                t += endPauseMs;
-            }
-        });
+        const schedule = () => {
+            if (token !== previewToken || !isAudioRunning() || document.hidden) return;
+            sequence.forEach((midi, index) => {
+                const last = index === sequence.length - 1;
+                schedulePreview(() => {
+                    const release = playMidiNote(midi, last ? 0.78 : 0.68);
+                    if (!release) return;
+                    previewReleases.add(release);
+                    schedulePreview(() => {
+                        release();
+                        previewReleases.delete(release);
+                    }, last ? 650 : intervalMs + 35);
+                }, index * intervalMs + (last ? 80 : 0));
+            });
+        };
+        if (audioReady) audioReady.then(schedule);
+        else schedule();
     }
 
     function render() {
@@ -380,19 +367,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
                     <div class="vpiano-pct"></div>
                 </div>
             `;
-            key.addEventListener('mouseenter', () => {
-                // Hover should never attempt to unlock audio (autoplay policy).
-                if (!isAudioRunning()) return;
-                playPc(pc, 0.8);
-            });
-            key.addEventListener('click', () => {
-                unlockAudioFromGesture();
-                togglePc(pc, { play: true });
-            });
-            key.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                deselectPc(pc);
-            });
+            bindKey(key, pc);
             whiteEl.appendChild(key);
         }
 
@@ -413,25 +388,38 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
                     <div class="vpiano-pct"></div>
                 </div>
             `;
-            key.addEventListener('mouseenter', () => {
-                if (!isAudioRunning()) return;
-                playPc(pc, 0.8);
-            });
-            key.addEventListener('click', (e) => {
-                e.stopPropagation();
-                unlockAudioFromGesture();
-                togglePc(pc, { play: true });
-            });
-            key.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                deselectPc(pc);
-            });
+            bindKey(key, pc);
             blackEl.appendChild(key);
         }
 
         syncAllKeyStates();
         syncAllKeyPercentages();
+    }
+
+    function bindKey(key, pc) {
+        let releaseHover;
+
+        key.addEventListener('pointerenter', event => {
+            if (event.pointerType === 'mouse' && isAudioRunning()) {
+                releaseHover = playPc(pc);
+            }
+        });
+        key.addEventListener('pointerleave', () => {
+            releaseHover?.();
+            releaseHover = undefined;
+        });
+        key.addEventListener('click', event => {
+            unlockAudioFromGesture();
+            if (!releaseHover || event.detail === 0) {
+                const release = playPc(pc);
+                window.setTimeout(release, 420);
+            }
+            togglePc(pc);
+        });
+        key.addEventListener('contextmenu', event => {
+            event.preventDefault();
+            deselectPc(pc);
+        });
     }
 
     function syncAllKeyStates() {
@@ -464,12 +452,11 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         }
     }
 
-    function togglePc(pc, { play = false } = {}) {
+    function togglePc(pc) {
         if (selected.has(pc)) {
             selected.delete(pc);
         } else {
             selected.add(pc);
-            if (play) playPc(pc, 1);
         }
         syncAllKeyStates();
         emitChange();
@@ -532,15 +519,15 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         playMidiNote,
         toggleNote: (noteName) => {
             const idx = PITCH_CLASS_TO_SHARP_NAME.indexOf(noteName);
-            if (idx >= 0) togglePc(idx, { play: false });
+            if (idx >= 0) togglePc(idx);
         },
         selectNote: (noteName) => {
             const idx = PITCH_CLASS_TO_SHARP_NAME.indexOf(noteName);
-            if (idx >= 0 && !selected.has(idx)) togglePc(idx, { play: false });
+            if (idx >= 0 && !selected.has(idx)) togglePc(idx);
         },
         deselectNote: (noteName) => {
             const idx = PITCH_CLASS_TO_SHARP_NAME.indexOf(noteName);
-            if (idx >= 0 && selected.has(idx)) togglePc(idx, { play: false });
+            if (idx >= 0 && selected.has(idx)) togglePc(idx);
         },
         clearSelection: () => setSelectedPitchClasses([], { silent: false }),
         selectNotes: (noteNames) => {
@@ -549,8 +536,6 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
                 .filter((pc) => pc >= 0);
             setSelectedPitchClasses(pcs, { silent: false });
         },
-        previewPitchClasses,
-        previewPitchClassSequence,
         previewMidiSequence,
         cancelPreviews,
         stopAllAudio,
