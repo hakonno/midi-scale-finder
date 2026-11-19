@@ -71,7 +71,10 @@ function findKeyboard(isBlackKey, lightness, width, height) {
             for (const pitch of BLACK_PITCHES) {
                 const candidate = traceKeyboard(runs, start, pitch);
                 if (!candidate || (best && candidate.rows <= best.rows)) continue;
-                best = { ...candidate, x };
+                const keyboard = { ...candidate, x };
+                const gridLeft = findGridLeft(keyboard, lightness, width);
+                if (gridLeft === null || gridLeft - x < 8 || width - gridLeft < 32) continue;
+                best = { ...keyboard, gridLeft };
             }
         }
     }
@@ -85,7 +88,7 @@ function findGridLeft(keyboard, lightness, width) {
             whiteRows.push(Math.round(keyboard.origin + row * keyboard.step));
         }
     }
-    const rightLimit = Math.min(width, keyboard.x + Math.ceil(keyboard.step * 16));
+    const rightLimit = Math.min(width, keyboard.x + Math.max(160, Math.ceil(keyboard.step * 16)));
     let boundary = keyboard.x;
     // Most sampled white-key rows stay bright until the start of the dark note grid.
     for (let x = keyboard.x; x < rightLimit; x++) {
@@ -134,9 +137,8 @@ export function detectPianoRollNotes({ data, width, height }) {
         return red >= 145 && red - green >= 55 && green - blue >= 22;
     };
     const keyboard = findKeyboard(isBlackKey, lightness, width, height);
-    const gridLeft = keyboard && findGridLeft(keyboard, lightness, width);
-    if (!keyboard || gridLeft === null || gridLeft - keyboard.x < 8 || width - gridLeft < 32) {
-        throw new Error('Could not find the piano keys. Crop to the FL Studio piano roll and include at least one octave of the keyboard on the left.');
+    if (!keyboard) {
+        throw new Error('Could not find the piano keys. Crop to the FL Studio note grid and keep the left piano keyboard visible. Include two octaves if possible.');
     }
 
     const noteWeights = new Map();
@@ -150,11 +152,11 @@ export function detectPianoRollNotes({ data, width, height }) {
             if (BLACK_PITCHES.has(pitch) ? !isBlackKey(keyboard.x, center) : tone < WHITE_KEY_MIN) continue;
         }
 
-        const pixels = rowNoteWidth(data, width, gridLeft, center, keyboard.step);
+        const pixels = rowNoteWidth(data, width, keyboard.gridLeft, center, keyboard.step);
         if (pixels > 0) noteWeights.set(pitch, (noteWeights.get(pitch) ?? 0) + pixels);
     }
     if (!noteWeights.size) {
-        throw new Error('Could not find colored notes. Capture the note grid with active notes visible.');
+        throw new Error('Could not find colored notes. Zoom in on the piano roll and capture the active notes in color.');
     }
     return noteWeights;
 }
@@ -168,10 +170,13 @@ export async function readPianoRollImage(file) {
         throw new Error('Could not open the image. Try a PNG, JPEG, or WebP screenshot.');
     }
     try {
-        const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(image.width, image.height));
         const canvas = document.createElement('canvas');
+        // Scale each axis independently so a wide image keeps its pitch rows legible.
+        // A uniform change in note widths does not affect their relative weights.
+        const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(image.width, image.height));
+        const heightScale = Math.min(MAX_IMAGE_EDGE / image.height, Math.max(scale, 0.8));
         canvas.width = Math.max(1, Math.round(image.width * scale));
-        canvas.height = Math.max(1, Math.round(image.height * scale));
+        canvas.height = Math.max(1, Math.round(image.height * heightScale));
         const context = canvas.getContext('2d', { willReadFrequently: true });
         if (!context) throw new Error('Image analysis is unavailable in this browser.');
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
