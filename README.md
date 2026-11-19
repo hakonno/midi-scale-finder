@@ -80,6 +80,7 @@ The app uses velocity layers 4, 9, and 15, shortened, faded where trimmed, and
 encoded to MP3 at 44.1 kHz. Nearby notes are transposed from the closest
 recording. The full set is about 7.6 MB on disk. The browser loads a middle
 register layer when audio is first activated and fetches other recordings
-as needed. A synthesized voice is available while recordings load or when
-a sample is unavailable. MIDI note releases and sustain pedal messages
+as needed. The visible octave starts loading in the background when the
+page opens. Playback waits for a pending recording and uses a synthesized
+voice if the recording is unavailable. MIDI note releases and sustain pedal messages
 control how long the sound rings.

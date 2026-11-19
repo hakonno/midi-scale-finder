@@ -47,6 +47,13 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
     let audioReady = null;
     let warmedSamples = false;
     const samples = createPianoSamples();
+    // Decode the visible octave without starting an autoplay-restricted audio context.
+    const preload = () => {
+        const OfflineContext = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+        if (OfflineContext) samples.warmUp(new OfflineContext(2, 1, 44100), 72);
+    };
+    if (window.requestIdleCallback) window.requestIdleCallback(preload, { timeout: 500 });
+    else window.setTimeout(preload, 0);
     const previewReleases = new Set();
     const volume = document.getElementById('pianoVolume');
     volume.addEventListener('input', () => {
@@ -295,30 +302,39 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         }
     }
 
-    function playPc(pc, velocity = 0.72) {
-        return playMidiNote(60 + pc % 12, velocity);
+    function playPc(pc, { durationMs } = {}) {
+        return playMidiNote(60 + pc % 12, 0.72, { durationMs });
     }
 
-    function playMidiNote(midi, velocity = 0.72) {
+    function playMidiNote(midi, velocity = 0.72, { durationMs } = {}) {
         if (!Number.isFinite(midi)) return;
         ensureAudioContext();
         const context = audioContext;
         let cancelled = false;
         let release;
 
-        const start = () => {
-            if (cancelled || context !== audioContext || !isAudioRunning() || document.hidden) return;
-            release = samples.play(context, masterBus.input, midi, velocity)
-                ?? playSynth({ freq: 440 * 2 ** ((midi - 69) / 12), velocity });
-        };
-        if (audioReady) audioReady.then(start);
-        else start();
-
-        return () => {
+        const stop = () => {
             if (cancelled) return;
             cancelled = true;
             if (context === audioContext) release?.();
         };
+        const play = buffer => {
+            if (cancelled || context !== audioContext || !isAudioRunning() || document.hidden) return;
+            release = buffer
+                ? samples.play(context, masterBus.input, midi, velocity, buffer)
+                : playSynth({ freq: 440 * 2 ** ((midi - 69) / 12), velocity });
+            if (release && durationMs) window.setTimeout(stop, durationMs);
+        };
+        const start = () => {
+            if (cancelled || context !== audioContext || !isAudioRunning() || document.hidden) return;
+            const buffer = samples.getBuffer(context, midi, velocity);
+            if (buffer instanceof Promise) buffer.then(play);
+            else play(buffer);
+        };
+        if (audioReady) audioReady.then(start);
+        else start();
+
+        return stop;
     }
 
     function previewMidiSequence(sequence, { intervalMs = 190 } = {}) {
@@ -326,7 +342,9 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         const token = previewToken;
         ensureAudioContext();
 
-        const schedule = () => {
+        const schedule = async () => {
+            if (token !== previewToken || !isAudioRunning() || document.hidden) return;
+            await Promise.all(sequence.map(midi => samples.getBuffer(audioContext, midi, 0.68)));
             if (token !== previewToken || !isAudioRunning() || document.hidden) return;
             sequence.forEach((midi, index) => {
                 const last = index === sequence.length - 1;
@@ -411,8 +429,7 @@ export function createVerticalPiano({ mountEl, onSelectionChange }) {
         key.addEventListener('click', event => {
             unlockAudioFromGesture();
             if (!releaseHover || event.detail === 0) {
-                const release = playPc(pc);
-                window.setTimeout(release, 420);
+                playPc(pc, { durationMs: 420 });
             }
             togglePc(pc);
         });

@@ -18,9 +18,12 @@ export function createPianoSamples() {
             buffers.set(name, buffer);
             return buffer;
         }
-        if (pending.has(name) || Date.now() < (retryAfter.get(name) ?? 0)) return null;
+        if (pending.has(name)) return pending.get(name);
+        if (Date.now() < (retryAfter.get(name) ?? 0)) return null;
 
-        const request = fetch(new URL(`./audio/${name}.mp3`, import.meta.url))
+        const request = fetch(new URL(`./audio/${name}.mp3`, import.meta.url), {
+            signal: AbortSignal.timeout?.(2500)
+        })
             .then(response => {
                 if (!response.ok) throw new Error(`Piano sample unavailable: ${name}`);
                 return response.arrayBuffer();
@@ -30,25 +33,37 @@ export function createPianoSamples() {
                 retryAfter.delete(name);
                 buffers.set(name, buffer);
                 if (buffers.size > MAX_BUFFERS) buffers.delete(buffers.keys().next().value);
+                return buffer;
             })
-            .catch(() => retryAfter.set(name, Date.now() + 15000))
+            .catch(() => {
+                retryAfter.set(name, Date.now() + 15000);
+                return null;
+            })
             .finally(() => pending.delete(name));
         pending.set(name, request);
-        return null;
+        return request;
     }
 
-    function warmUp(context) {
+    function warmUp(context, lastRoot = 90) {
         // On-screen piano, computer keyboard and scale previews share this range.
-        for (let root = 60; root <= 90; root += 3) load(context, root, 9);
+        for (let root = 60; root <= lastRoot; root += 3) load(context, root, 9);
     }
 
-    function play(context, destination, midi, velocity) {
+    function getBuffer(context, midi, velocity) {
         if (midi < FIRST_PIANO_NOTE || midi > LAST_PIANO_NOTE) return null;
         // The original recordings are spaced a minor third apart.
         const root = Math.round(midi / 3) * 3;
         const layer = velocity < 0.38 ? 4 : velocity > 0.82 ? 15 : 9;
-        const buffer = load(context, root, layer) ?? load(context, root, 9);
-        if (!buffer) return null;
+        const preferred = load(context, root, layer);
+        if (layer === 9 || (preferred && !(preferred instanceof Promise))) return preferred;
+
+        const medium = load(context, root, 9);
+        if (medium && !(medium instanceof Promise)) return medium;
+        return Promise.resolve(preferred).then(buffer => buffer ?? medium);
+    }
+
+    function play(context, destination, midi, velocity, buffer) {
+        const root = Math.round(midi / 3) * 3;
 
         const source = context.createBufferSource();
         const gain = context.createGain();
@@ -76,5 +91,5 @@ export function createPianoSamples() {
         };
     }
 
-    return { warmUp, play };
+    return { warmUp, getBuffer, play };
 }
