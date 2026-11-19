@@ -50,6 +50,16 @@
                                 <option value="live">Live (held)</option>
                             </select>
                         </label>
+                        <label class="kb-select">
+                            <span class="kb-select-label">Q plays</span>
+                            <select id="keyboardOctave" disabled>
+                                <option value="2">C2</option>
+                                <option value="3">C3</option>
+                                <option value="4">C4</option>
+                                <option value="5" selected>C5</option>
+                                <option value="6">C6</option>
+                            </select>
+                        </label>
                     </div>
                     <div class="keyboard-controls midi-controls" aria-label="MIDI device input">
                         <button id="midiConnectBtn" type="button">Connect MIDI device</button>
@@ -88,7 +98,7 @@
             <figure class="kb-figure">
                 <img src="qwerty_keyboard.jpg" width="876" height="342" loading="lazy"
                      alt="Keyboard to piano mapping. Lower row Z–/ maps C4–E5 (whites), with S D G H J as C♯4 D♯4 F♯4 G♯4 A♯4. Upper row Q–P maps C5–E6." />
-                <figcaption>Reference: Keyboard → piano notes (two octaves).</figcaption>
+                <figcaption>Default mapping with Q set to C5. Changing the Q octave shifts both rows.</figcaption>
             </figure>
         </section>
     </main>
